@@ -1,0 +1,116 @@
+# ========================
+# Dependencies
+# ========================
+node_modules/
+.pnp
+.pnp.js
+vendor/
+
+# ========================
+# Build & Output
+# ========================
+.next/
+out/
+.expo/
+dist/
+web-build/
+build/
+bin/
+src/backend/server
+src/backend/tmp/
+*.tsbuildinfo
+next-env.d.ts
+
+# ========================
+# Environment Variables
+# ========================
+.env
+.env.local
+.env.*.local
+.env*.local
+
+# ========================
+# Debug & Logs
+# ========================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+*.pid
+coverage/
+
+# ========================
+# IDE & Editor
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ========================
+# OS & File System
+# ========================
+.DS_Store
+Thumbs.db
+*.tmp
+
+# ========================
+# Go Specific
+# ========================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+
+# ========================
+# Docker
+# ========================
+docker-compose.override.yml
+
+# ========================
+# Data, SQLite & Uploads
+# ========================
+*.db
+*.db-journal
+*.sqlite
+src/backend/data/imports/
+src/backend/data/archive/
+
+# ========================
+# Microsoft Office & Temp Files
+# ========================
+~$*.docx
+~$*.doc
+~$*.xlsx
+~$*.xls
+~$*.pptx
+~$*.ppt
+
+# ========================
+# Project Specific Docs
+# ========================
+# Ignore documents generally but keep blueprint folder clean
+*.docx
+*.doc
+*.pdf
+!blueprint/**/*.pdf
+
+# Keep these specific project files ignored as per origin/back-end
+context project môn học.docx
+context project môn học.pdf
+
+# Sample data files (generated, not source code)
+src/data/samples/*.csv
+
+clips/
+data
+src/backend/data
+implementation_plan.md
