@@ -29,8 +29,9 @@ export function middleware(request: NextRequest) {
       try {
         const user = JSON.parse(decodeURIComponent(sessionCookie))
         const role = user.role?.toUpperCase()
-        const isAdmin = role === 'ADMIN' || role === 'STAFF'
-        const dest = isAdmin ? '/admin' : '/'
+        let dest = '/'
+        if (role === 'ADMIN') dest = '/admin'
+        else if (role === 'STAFF') dest = '/staff/checkin'
         return NextResponse.redirect(new URL(dest, request.url))
       } catch {
         // Cookie hỏng → xóa và cho vào login
@@ -48,8 +49,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // 3. Bảo vệ /admin — chỉ ORGANIZER hoặc STAFF mới vào được
-  if (pathname.startsWith('/admin')) {
+  // 3. Bảo vệ /admin và /staff — chỉ ADMIN hoặc STAFF mới vào được
+  if (pathname.startsWith('/admin') || pathname.startsWith('/staff')) {
     try {
       const user = JSON.parse(decodeURIComponent(sessionCookie))
       const role = user.role?.toUpperCase()
