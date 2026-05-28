@@ -1,87 +1,158 @@
-# 🎓 ĐỒ ÁN MÔN HỌC – UniHub Workshop
+<p align="center">
+  <img src="docs/images/hero_banner.png" alt="UniHub Workshop Banner" width="800"/>
+</p>
 
-Hệ thống quản lý, đăng ký và check-in sự kiện (Tuần lễ kỹ năng và nghề nghiệp) tải trọng cao dành cho sinh viên và ban tổ chức.
+<h1 align="center">🎓 UniHub Workshop</h1>
+<p align="center">
+  <strong>High-Concurrency Event Management Platform for Universities</strong>
+</p>
+<p align="center">
+  Hệ thống quản lý, đăng ký và check-in sự kiện (Tuần lễ kỹ năng và nghề nghiệp) tải trọng cao dành cho sinh viên và ban tổ chức.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go"/>
+  <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL"/>
+  <img src="https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis"/>
+  <img src="https://img.shields.io/badge/RabbitMQ-3-FF6600?style=for-the-badge&logo=rabbitmq&logoColor=white" alt="RabbitMQ"/>
+  <img src="https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js"/>
+  <img src="https://img.shields.io/badge/Expo-React_Native-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo"/>
+  <img src="https://img.shields.io/badge/GCP-Kubernetes-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white" alt="GCP"/>
+</p>
 
 ---
 
-## 🌟 Tính năng nghiệp vụ đầy đủ
-- **Sinh viên:** Xem danh sách workshop, sơ đồ phòng, trạng thái ghế trống (thời gian thực). Đăng ký (miễn phí/trả phí) và nhận mã QR qua email.
-- **Ban tổ chức (Admin):** Quản lý sự kiện, tải lên PDF để AI tóm tắt nội dung tự động, tải lên file CSV để Import danh sách 12,000 sinh viên. Xem thống kê hệ thống.
-- **Nhân sự Check-in (Staff):** Quét mã QR tại cửa hội trường bằng ứng dụng di động. Hỗ trợ ghi nhận **Offline (Mất mạng hoàn toàn)** và tự động đồng bộ khi có Internet trở lại.
+## 🌟 Tính năng nghiệp vụ
 
-## 🚀 Các cơ chế kỹ thuật nổi bật (Đã triển khai trong Code)
-1. **Chống lố ghế (Tranh chấp chỗ ngồi):** Sử dụng `SELECT FOR UPDATE` (Pessimistic Locking) trong PostgreSQL đảm bảo giao dịch tuyệt đối an toàn kể cả khi hàng trăm thread gọi cùng lúc.
-2. **Kiểm soát tải đột biến (Rate Limiting & Waiting Room):** Thuật toán **Token Bucket** trên Redis chống Spam API. Cùng với **Virtual Waiting Room** (Redis ZSET) đưa sinh viên vào phòng chờ khi quá tải để bảo vệ hệ thống.
-3. **Event-Driven Architecture (RabbitMQ):** Bóc tách luồng Đăng ký và Thông báo (Web/Email) thành các Worker hoạt động độc lập nhằm phản hồi API đăng ký dưới 10ms.
-4. **Xử lý thanh toán lỗi (Circuit Breaker & Idempotency):** Áp dụng khóa Luỹ đẳng chặn trừ tiền 2 lần. Bọc Circuit Breaker để "Ngắt mạch" (Fail Fast) ngay lập tức khi hệ thống thanh toán sập, giúp server Go không bị treo.
-5. **Bảo mật mã QR bằng Chữ ký số RSA-2048:** App Mobile nhận Public Key để tự phân biệt vé thật/giả ngay cả khi không có kết nối Internet mạng.
-6. **AI Summary Pipe-and-Filter:** Đẩy luồng xử lý PDF qua các filter trích xuất, làm sạch và gọi Google Gemini API để tóm tắt học thuật.
-7. **Batch Import CSV hiệu năng cao:** Phân tách file 12,000 sinh viên thành các lô (Chunks) và ghi đè bằng `INSERT ... ON CONFLICT DO UPDATE` chỉ trong 1 truy vấn.
+| Vai trò | Tính năng |
+|---------|-----------|
+| **Sinh viên** | Xem danh sách workshop, sơ đồ phòng, trạng thái ghế trống (thời gian thực). Đăng ký (miễn phí/trả phí) và nhận mã QR qua email. |
+| **Ban tổ chức (Admin)** | Quản lý sự kiện, tải lên PDF để AI tóm tắt nội dung tự động, Import CSV 12,000 sinh viên. Xem thống kê hệ thống. |
+| **Nhân sự Check-in (Staff)** | Quét mã QR tại cửa hội trường bằng ứng dụng di động. Hỗ trợ ghi nhận **Offline (Mất mạng hoàn toàn)** và tự động đồng bộ khi có Internet. |
 
 ---
 
+## 🏗️ Kiến trúc Backend (System Architecture)
 
-## ⚙️ Hướng dẫn cài đặt và khởi chạy
+<p align="center">
+  <img src="docs/images/backend_architecture.png" alt="Backend Architecture" width="800"/>
+</p>
 
-> **Yêu cầu môi trường:** Đã cài đặt `Docker & Docker Compose`, `Node.js (v18+)`, `Golang (v1.22+)`.
+### Các cơ chế kỹ thuật nổi bật
 
-### Bước 1: Khởi động Hạ tầng (Cơ sở dữ liệu & Message Broker)
-Mở Terminal, di chuyển vào thư mục backend và chạy Docker Compose:
+| # | Cơ chế | Mô tả |
+|---|--------|-------|
+| 1 | **Pessimistic Locking** | `SELECT FOR UPDATE` trong PostgreSQL đảm bảo giao dịch an toàn khi hàng trăm thread tranh chấp chỗ ngồi. |
+| 2 | **Rate Limiting & Waiting Room** | Thuật toán **Token Bucket** trên Redis chống Spam API. **Virtual Waiting Room** (Redis ZSET) đưa sinh viên vào phòng chờ khi quá tải. |
+| 3 | **Event-Driven Architecture** | RabbitMQ bóc tách luồng Đăng ký và Thông báo thành Worker độc lập, phản hồi API dưới 10ms. |
+| 4 | **Circuit Breaker & Idempotency** | Khóa Luỹ đẳng chặn trừ tiền 2 lần. Circuit Breaker "Ngắt mạch" (Fail Fast) khi hệ thống thanh toán sập. |
+| 5 | **RSA-2048 Digital Signature** | App Mobile nhận Public Key để tự verify vé thật/giả ngay cả khi Offline. |
+| 6 | **AI Pipe-and-Filter** | Trích xuất PDF → Làm sạch → Gọi Google Gemini API để tóm tắt học thuật. |
+| 7 | **Batch Import CSV** | Phân tách 12,000 sinh viên thành Chunks, ghi đè bằng `INSERT ... ON CONFLICT DO UPDATE`. |
+
+---
+
+## ☁️ Hạ tầng DevOps trên GCP (Production Deployment)
+
+<p align="center">
+  <img src="docs/images/gcp_infrastructure.png" alt="GCP Infrastructure & CI/CD" width="800"/>
+</p>
+
+| Thành phần | Công nghệ |
+|------------|-----------|
+| **Compute** | GKE Autopilot (Horizontal Pod Autoscaler: 2→20 pods) |
+| **Database** | Cloud SQL for PostgreSQL (Private IP, Automated Backup) |
+| **Cache** | Memorystore for Redis (Private IP) |
+| **Message Queue** | RabbitMQ trên GKE (Helm Chart) |
+| **Networking** | VPC, Cloud DNS, Global HTTP(S) Load Balancer, Cloud Armor WAF, Cloud NAT |
+| **CI/CD** | Jenkins Pipeline → Build → Test → Docker Image → Artifact Registry → Rolling Deploy |
+| **Monitoring** | Prometheus + Grafana, Cloud Logging, Alerting |
+| **Security** | Google Secret Manager, Network Policy, Non-root containers |
+| **IaC** | Terraform (Infrastructure as Code) |
+
+---
+
+## 📁 Cấu trúc Dự án
+
+```
+unihub-workshop/
+├── src/
+│   ├── backend/          # Go API Server + Background Workers
+│   │   ├── cmd/server/   # Entrypoint (main.go)
+│   │   ├── internal/     # Handler, Service, Repository, Middleware, Config
+│   │   ├── migrations/   # Database schema & seed data
+│   │   └── Dockerfile
+│   ├── web/              # Next.js Frontend (Admin + Student)
+│   └── mobile/           # React Native (Expo) - Staff Check-in App
+├── deploy/               # DevOps & Infrastructure
+│   ├── terraform/        # GCP Infrastructure as Code
+│   ├── k8s/              # Kubernetes manifests
+│   ├── jenkins/          # CI/CD pipeline (Jenkinsfile)
+│   └── monitoring/       # Grafana + Prometheus config
+├── docs/images/          # Ảnh minh hoạ cho README
+└── blueprint/            # Design docs & specs
+```
+
+---
+
+## ⚙️ Hướng dẫn cài đặt và khởi chạy (Local Development)
+
+> **Yêu cầu môi trường:** `Docker & Docker Compose`, `Node.js (v18+)`, `Golang (v1.22+)`.
+
+### Bước 1: Khởi động Hạ tầng (Database & Message Broker)
+
 ```bash
 cd src/backend
 docker-compose up -d
 ```
+
 Lệnh này sẽ khởi động:
-- **PostgreSQL** (port `5433`)
+- **PostgreSQL** (port `5433`) — Schema Database tự động chạy qua `init_schema.sql`
 - **Redis** (port `6379`)
-- **RabbitMQ** (port `5672` và `15672`)
-*(Schema Database sẽ tự động được chạy qua file `src/data/init_schema.sql`)*
+- **RabbitMQ** (port `5672` / Management UI: `15672`)
 
-### Bước 2: Cấu hình và Chạy Backend
-Tạo file `.env` từ file mẫu:
-```bash
-cp .env.example .env
-```
-*(Bạn có thể điền thông tin SMTP Email hoặc Google Gemini API Key vào file `.env` nếu muốn test tính năng thực).*
+### Bước 2: Chạy Backend
 
-Khởi chạy Backend (Port `8080`):
 ```bash
+cp .env.example .env    # Tạo file cấu hình
 go mod tidy
 go run cmd/server/main.go
 ```
 
-### Bước 3: Cấu hình và Chạy Web Frontend
-Mở một Terminal mới:
+Backend sẽ chạy tại: `http://localhost:8080`
+
+### Bước 3: Chạy Web Frontend
+
 ```bash
 cd src/web
 npm install
 npm run dev
 ```
-Trang Web Sinh Viên và Admin sẽ khởi chạy tại: `http://localhost:3000`
 
-### Bước 4: Khởi chạy Mobile App (Nhân sự Check-in)
-Mở một Terminal mới:
+Trang Web sẽ khởi chạy tại: `http://localhost:3000`
+
+### Bước 4: Chạy Mobile App (Staff Check-in)
+
 ```bash
 cd src/mobile
 npm install
 npx expo start --clear
 ```
-Sử dụng ứng dụng **Expo Go** trên điện thoại (hoặc máy ảo Simulator) để quét mã QR hiện ra trên màn hình Terminal.
 
-*(Lưu ý: Nếu test bằng điện thoại vật lý, hãy đảm bảo Backend đổi biến `.env` hoặc IP trong file `api.ts` để gọi API qua Local Area Network).*
+Sử dụng ứng dụng **Expo Go** trên điện thoại để quét mã QR trên Terminal.
+
+> **Lưu ý:** Nếu test bằng điện thoại vật lý, hãy đổi IP trong file `api.ts` để gọi API qua Local Area Network.
 
 ---
 
 ## 🔑 Dữ liệu mẫu (Seed Data)
 
-Database đã tự động được Seed các Admin ban đầu. Để đăng nhập hệ thống, vui lòng sử dụng:
-
 **Tài khoản Admin:**
-- Email / Username: `admin` (hoặc `admin@unihub.edu.vn`)
-- Mật khẩu: `admin123`
+| Field | Value |
+|-------|-------|
+| Username | `admin` (hoặc `admin@unihub.edu.vn`) |
+| Password | `admin123` |
 
 **Test Tính Năng Sinh Viên:**
-1. Truy cập trang Web Admin.
-2. Vào mục **Sinh viên**, upload file `src/backend/data/sample_students_v2.csv`.
-3. Hệ thống sẽ Import thành công. 
-4. Đăng xuất, dùng Email sinh viên trong file (Mật khẩu mặc định: `123456`) để đăng nhập và đăng ký Workshop!
+1. Đăng nhập Admin → Vào mục **Sinh viên** → Upload file `src/backend/data/sample_students_v2.csv`.
+2. Đăng xuất → Dùng Email sinh viên trong file (Mật khẩu: `123456`) để đăng nhập và đăng ký Workshop.
