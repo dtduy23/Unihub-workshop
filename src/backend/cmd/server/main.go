@@ -42,6 +42,11 @@ func main() {
 	pgPool := database.NewPostgresPool(cfg)
 	defer pgPool.Close()
 
+	// Auto-run database migrations
+	if err := database.RunMigrations(pgPool); err != nil {
+		log.Fatalf("[MIGRATION] Failed: %v", err)
+	}
+
 	redisClient := database.NewRedisClient(cfg)
 	defer redisClient.Close()
 
@@ -213,54 +218,64 @@ func main() {
 		})
 	})
 
-	// Start background workers
+	// Context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Registration worker (consumes from RabbitMQ)
-	go startRegistrationWorker(ctx, consumer, regService)
+	mode := cfg.AppMode
+	log.Printf("[SERVER] Running in mode: %s", mode)
 
-	// Notification worker
-	go startNotificationWorker(ctx, cfg.RabbitMQURL, notifService)
-
-	// Payment cleanup worker (runs every 5 minutes)
-	go startPaymentCleanupWorker(ctx, paymentService)
-
-	// Batch import scheduler (runs at 2:00 AM daily)
-	go startBatchImportScheduler(ctx, batchService)
-
-	// Start server
-	srv := &http.Server{
-		Addr:         ":" + cfg.ServerPort,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+	// Start background workers (chỉ khi mode = "worker" hoặc "all")
+	if mode == "worker" || mode == "all" {
+		go startRegistrationWorker(ctx, consumer, regService)
+		go startNotificationWorker(ctx, cfg.RabbitMQURL, notifService)
+		go startPaymentCleanupWorker(ctx, paymentService)
+		go startBatchImportScheduler(ctx, batchService)
+		log.Println("[SERVER] Background workers started")
 	}
 
-	// Graceful shutdown
-	go func() {
+	// Start HTTP server (chỉ khi mode = "api" hoặc "all")
+	if mode == "api" || mode == "all" {
+		srv := &http.Server{
+			Addr:         ":" + cfg.ServerPort,
+			Handler:      r,
+			ReadTimeout:  15 * time.Second,
+			WriteTimeout: 15 * time.Second,
+			IdleTimeout:  60 * time.Second,
+		}
+
+		// Graceful shutdown
+		go func() {
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+			<-sigCh
+
+			log.Println("[SERVER] Shutting down gracefully...")
+			cancel()
+
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutdownCancel()
+
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				log.Printf("[SERVER] Forced shutdown: %v", err)
+			}
+		}()
+
+		log.Printf("[SERVER] Starting on port %s", cfg.ServerPort)
+		log.Printf("[SERVER] API docs: http://localhost:%s/health", cfg.ServerPort)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[SERVER] Failed to start: %v", err)
+		}
+		log.Println("[SERVER] Stopped")
+	} else {
+		// Worker-only mode: block cho đến khi nhận tín hiệu tắt
+		log.Println("[SERVER] Worker-only mode — waiting for shutdown signal...")
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
-
-		log.Println("[SERVER] Shutting down gracefully...")
+		log.Println("[SERVER] Worker shutting down...")
 		cancel()
-
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer shutdownCancel()
-
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("[SERVER] Forced shutdown: %v", err)
-		}
-	}()
-
-	log.Printf("[SERVER] Starting on port %s", cfg.ServerPort)
-	log.Printf("[SERVER] API docs: http://localhost:%s/health", cfg.ServerPort)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("[SERVER] Failed to start: %v", err)
 	}
-	log.Println("[SERVER] Stopped")
 }
 
 // Background workers

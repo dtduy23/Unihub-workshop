@@ -1,0 +1,10 @@
+# ============================================
+# NAMESPACE — Cô lập tài nguyên UniHub
+# ============================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+    app.kubernetes.io/managed-by: kubectl

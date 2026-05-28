@@ -1,64 +1,38 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 export async function POST(request: Request) {
   try {
-    const records = await request.json(); 
-    
+    const records = await request.json();
+
     console.log(`[Sync] Đang xử lý đồng bộ ${records.length} bản ghi...`);
 
     if (!records || records.length === 0) {
       return NextResponse.json({ status: 'success', synced_ids: [] });
     }
 
-    const synced_ids: string[] = [];
+    // Lấy JWT token từ cookie để forward tới Go Backend
+    const cookieHeader = request.headers.get('cookie') || '';
+    const tokenMatch = cookieHeader.match(/unihub_token=([^;]*)/);
+    const token = tokenMatch ? decodeURIComponent(tokenMatch[1]) : '';
 
-    for (const rec of records) {
-      let targetUUID = rec.user_uuid;
-
-      // TRƯỜNG HỢP MÃ CŨ: Nếu UUID bị undefined hoặc rỗng, thực hiện tra cứu MSSV (Fallback)
-      if (!targetUUID || targetUUID === 'undefined' || targetUUID === '') {
-        console.log(`[Sync Fallback] Đang tra cứu UUID cho mã cũ của SV: ${rec.student_id}`);
-        const { data: userData } = await supabase
-          .from('users')
-          .select('id')
-          .eq('user_id', rec.student_id.trim())
-          .single();
-        
-        if (userData) {
-          targetUUID = userData.id;
-        } else {
-          console.error(`[Sync Error] Không tìm thấy SV ${rec.student_id} trong hệ thống.`);
-          continue;
-        }
-      }
-
-      // THỰC HIỆN UPDATE
-      const { data, error } = await supabase
-        .from('registrations')
-        .update({ 
-          is_checked_in: true,
-          updated_at: new Date(rec.scanned_at).toISOString()
-        })
-        .eq('user_id', targetUUID)
-        .eq('workshop_id', rec.workshop_id.trim())
-        .select();
-
-      if (error) {
-        console.error(`[Sync Error] Lỗi DB cho SV ${rec.student_id}:`, error.message);
-      } else if (!data || data.length === 0) {
-        console.warn(`[Sync Warn] SV ${rec.student_id} chưa đăng ký workshop này.`);
-      } else {
-        console.log(`[Sync Success] Đã điểm danh SV ${rec.student_id}`);
-        synced_ids.push(rec.id);
-      }
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
-    return NextResponse.json({
-      status: 'success',
-      synced_ids: synced_ids,
-      message: `Đồng bộ thành công ${synced_ids.length}/${records.length} bản ghi.`
+
+    // Forward toàn bộ request tới Go Backend API
+    const res = await fetch(`${API_URL}/api/v1/checkin/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(records),
     });
+
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
   } catch (error: any) {
     console.error('[Sync Fatal Error]:', error.message);
     return NextResponse.json({ error: 'Lỗi hệ thống' }, { status: 500 });

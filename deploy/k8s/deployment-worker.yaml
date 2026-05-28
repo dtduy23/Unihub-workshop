@@ -1,0 +1,51 @@
+# ============================================
+# DEPLOYMENT — Background Worker
+# ============================================
+# APP_MODE=worker: chỉ chạy background jobs, không chạy HTTP server
+# Cố định 1 replica để tránh race condition (cleanup, batch import)
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unihub-worker
+  namespace: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1  # Cố định — KHÔNG scale
+  strategy:
+    type: Recreate  # Đảm bảo chỉ có 1 instance chạy tại mọi thời điểm
+  selector:
+    matchLabels:
+      app: unihub-worker
+  template:
+    metadata:
+      labels:
+        app: unihub-worker
+        app.kubernetes.io/name: unihub
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: unihub-worker
+      containers:
+      - name: worker
+        image: asia-southeast1-docker.pkg.dev/YOUR_PROJECT_ID/unihub-repo/backend:latest
+        imagePullPolicy: Always
+
+        env:
+        - name: APP_MODE
+          value: "worker"
+
+        envFrom:
+        - configMapRef:
+            name: unihub-config
+        - secretRef:
+            name: unihub-secret
+
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"

@@ -8,6 +8,9 @@ import (
 )
 
 type Config struct {
+	// App Mode: "api" | "worker" | "all" (default cho local dev)
+	AppMode string
+
 	// Database
 	DBHost     string
 	DBPort     string
@@ -64,6 +67,7 @@ func Load() *Config {
 	_ = godotenv.Load()
 
 	return &Config{
+		AppMode:    getEnv("APP_MODE", "all"),
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     getEnv("DB_PORT", "5432"),
 		DBUser:     getEnv("DB_USER", "unihub"),

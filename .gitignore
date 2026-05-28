@@ -113,7 +113,6 @@ src/data/samples/*.csv
 clips/
 data
 src/backend/data
-implementation_plan.md
 
 # ========================
 # Terraform
@@ -130,5 +129,10 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-terraform_explained.md
 private.pem
+
+# ========================
+# Kubernetes Secrets
+# ========================
+deploy/k8s/secret.yaml
+src/web/.env.local

@@ -1,0 +1,40 @@
+# ============================================
+# RabbitMQ Helm Values — Bitnami Chart
+# ============================================
+# Cài đặt: helm install rabbitmq bitnami/rabbitmq -n unihub -f values.yaml
+#
+# Chart: https://github.com/bitnami/charts/tree/main/bitnami/rabbitmq
+
+# Authentication
+auth:
+  username: unihub
+  password: unihub-rmq-pass  # Đổi password trên production
+  erlangCookie: unihub-erlang-cookie-secret
+
+# Single node (tiết kiệm chi phí cho dev/staging)
+replicaCount: 1
+
+# Persistence
+persistence:
+  enabled: true
+  size: 8Gi
+
+# Resources (GKE Autopilot yêu cầu khai báo resources)
+resources:
+  requests:
+    cpu: "250m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# Management Plugin (Web UI)
+plugins: "rabbitmq_management rabbitmq_peer_discovery_k8s"
+
+# Service
+service:
+  type: ClusterIP
+
+# Metrics cho Prometheus (optional)
+metrics:
+  enabled: false  # Bật khi cài Prometheus stack
