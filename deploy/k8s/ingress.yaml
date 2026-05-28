@@ -1,0 +1,74 @@
+# ============================================
+# INGRESS — GKE + Google Cloud Load Balancer
+# ============================================
+# Routing:
+#   api.yourdomain.dev/* → unihub-api-service (Backend)
+#   yourdomain.dev/*     → unihub-web-service (Frontend)
+#
+# Nếu chưa có domain, dùng path-based routing:
+#   <IP>/api/* → Backend
+#   <IP>/*    → Frontend
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: unihub-ingress
+  namespace: unihub
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    # Bỏ comment dòng dưới khi đã có domain + SSL cert
+    # networking.gke.io/managed-certificates: "unihub-ssl-cert"
+  labels:
+    app.kubernetes.io/name: unihub
+spec:
+  # === OPTION 1: Host-based routing (khi có domain) ===
+  # Bỏ comment block này và comment OPTION 2 khi đã có domain
+  #
+  # rules:
+  # - host: api.yourdomain.dev
+  #   http:
+  #     paths:
+  #     - path: /
+  #       pathType: Prefix
+  #       backend:
+  #         service:
+  #           name: unihub-api-service
+  #           port:
+  #             number: 80
+  # - host: yourdomain.dev
+  #   http:
+  #     paths:
+  #     - path: /
+  #       pathType: Prefix
+  #       backend:
+  #         service:
+  #           name: unihub-web-service
+  #           port:
+  #             number: 80
+
+  # === OPTION 2: Path-based routing (không cần domain) ===
+  # Dùng IP trực tiếp: <EXTERNAL_IP>/api/* → Backend, /* → Frontend
+  rules:
+  - http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: unihub-api-service
+            port:
+              number: 80
+      - path: /health
+        pathType: Exact
+        backend:
+          service:
+            name: unihub-api-service
+            port:
+              number: 80
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: unihub-web-service
+            port:
+              number: 80
