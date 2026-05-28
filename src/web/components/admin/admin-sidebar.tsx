@@ -8,7 +8,8 @@ import {
   Database, 
   Settings, 
   ChevronRight,
-  Sparkles
+  Sparkles,
+  ScanLine
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -23,6 +24,11 @@ const navItems = [
     name: 'Quản lý Workshop', 
     href: '/admin/workshops', 
     icon: CalendarRange 
+  },
+  { 
+    name: 'Check-in', 
+    href: '/staff/checkin', 
+    icon: ScanLine 
   },
   { 
     name: 'Trung tâm Dữ liệu', 
