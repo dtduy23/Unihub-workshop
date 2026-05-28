@@ -1,0 +1,62 @@
+# ============================================
+# DEPLOYMENT — Frontend Next.js
+# ============================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unihub-web
+  namespace: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+    app.kubernetes.io/component: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: unihub-web
+  template:
+    metadata:
+      labels:
+        app: unihub-web
+        app.kubernetes.io/name: unihub
+        app.kubernetes.io/component: web
+    spec:
+      containers:
+      - name: web
+        image: asia-southeast1-docker.pkg.dev/YOUR_PROJECT_ID/unihub-repo/web:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          protocol: TCP
+
+        env:
+        - name: NEXT_PUBLIC_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: unihub-web-config
+              key: NEXT_PUBLIC_API_URL
+
+        readinessProbe:
+          httpGet:
+            path: /login
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+
+        livenessProbe:
+          httpGet:
+            path: /login
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "300m"
+            memory: "256Mi"

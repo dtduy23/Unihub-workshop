@@ -1,0 +1,43 @@
+# ============================================
+# SERVICES — ClusterIP (Internal Load Balancing)
+# ============================================
+
+# Backend API Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: unihub-api-service
+  namespace: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app: unihub-api
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+
+---
+
+# Frontend Web Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: unihub-web-service
+  namespace: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  selector:
+    app: unihub-web
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3000
+    protocol: TCP

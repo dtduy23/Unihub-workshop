@@ -1,0 +1,67 @@
+# ============================================
+# CONFIGMAP — Biến môi trường không nhạy cảm
+# ============================================
+# Giá trị lấy từ: terraform output
+# Chạy: terraform output cloudsql_private_ip / redis_addr
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unihub-config
+  namespace: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+data:
+  # --- Database ---
+  DB_HOST: "REPLACE_WITH_CLOUDSQL_PRIVATE_IP"  # terraform output cloudsql_private_ip
+  DB_PORT: "5432"
+  DB_NAME: "unihub_workshop"
+  DB_USER: "unihub"
+  DB_SSLMODE: "require"
+
+  # --- Redis ---
+  REDIS_ADDR: "REPLACE_WITH_REDIS_ADDR"  # terraform output redis_addr (host:port)
+  REDIS_PASSWORD: ""
+
+  # --- Server ---
+  SERVER_PORT: "8080"
+  CORS_ORIGINS: "https://unihub.yourdomain.dev"
+
+  # --- SMTP ---
+  SMTP_HOST: "smtp.gmail.com"
+  SMTP_PORT: "587"
+  SMTP_FROM: "noreply@unihub.edu.vn"
+
+  # --- AI ---
+  GEMINI_MODEL: "gemini-1.5-flash"
+  AI_TEMPERATURE: "0.4"
+  AI_MAX_TOKENS: "16384"
+
+  # --- Batch Import ---
+  CSV_IMPORT_DIR: "./data/imports"
+  CSV_ARCHIVE_DIR: "./data/archive"
+
+  # --- Rate Limiting ---
+  RATE_LIMIT_CAPACITY: "5000"
+  RATE_LIMIT_REFILL_RATE: "1000"
+  RATE_LIMIT_TTL: "300"
+
+  # --- Migration ---
+  RUN_SEED: "true"  # Đổi thành "false" sau khi seed data lần đầu
+
+  # --- Payment ---
+  PAYMENT_GATEWAY_URL: "http://unihub-api-service.unihub.svc.cluster.local/mock/payment"
+
+---
+
+# ConfigMap riêng cho Frontend
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unihub-web-config
+  namespace: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+    app.kubernetes.io/component: web
+data:
+  NEXT_PUBLIC_API_URL: "https://api.unihub.yourdomain.dev"

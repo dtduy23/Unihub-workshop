@@ -1,0 +1,81 @@
+# ============================================
+# DEPLOYMENT — Backend API Server
+# ============================================
+# APP_MODE=api: chỉ chạy HTTP server, không chạy background workers
+# HPA sẽ scale từ 2 đến 20 replicas dựa trên CPU
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unihub-api
+  namespace: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: unihub-api
+  template:
+    metadata:
+      labels:
+        app: unihub-api
+        app.kubernetes.io/name: unihub
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: unihub-api
+      containers:
+      - name: api
+        image: asia-southeast1-docker.pkg.dev/YOUR_PROJECT_ID/unihub-repo/backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+
+        env:
+        - name: APP_MODE
+          value: "api"
+
+        envFrom:
+        - configMapRef:
+            name: unihub-config
+        - secretRef:
+            name: unihub-secret
+
+        # Readiness: K8s chỉ gửi traffic khi app sẵn sàng
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        # Liveness: K8s tự restart nếu app bị treo
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+
+      # Đảm bảo các Pod được phân bổ đều trên các Node
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: unihub-api

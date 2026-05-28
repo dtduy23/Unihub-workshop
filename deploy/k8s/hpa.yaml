@@ -1,0 +1,41 @@
+# ============================================
+# HPA — Horizontal Pod Autoscaler cho API
+# ============================================
+# Khi CPU trung bình > 70%, GKE tự động tạo thêm Pod
+# Min: 2 pods, Max: 20 pods
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: unihub-api-hpa
+  namespace: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: unihub-api
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30   # Scale up nhanh (30s)
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Scale down chậm (5 phút) để tránh flapping
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
