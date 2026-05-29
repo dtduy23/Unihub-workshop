@@ -1,0 +1,62 @@
+# ============================================
+# Grafana Helm Values — Cài trên GKE (Option A)
+# ============================================
+# Cài đặt:
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   helm install grafana grafana/grafana -n unihub -f values.yaml
+#
+# Truy cập: kubectl port-forward svc/grafana 3001:80 -n unihub
+#           → http://localhost:3001
+
+# Admin credentials
+adminUser: admin
+adminPassword: unihub-grafana-2026  # Đổi trên production
+
+# Resources (GKE Autopilot yêu cầu khai báo)
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "300m"
+    memory: "256Mi"
+
+# Persistence — lưu dashboard khi pod restart
+persistence:
+  enabled: true
+  size: 2Gi
+
+# Service
+service:
+  type: ClusterIP
+  port: 80
+
+# Datasource — tự động kết nối Google Managed Prometheus
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      # Google Managed Prometheus frontend endpoint trên GKE
+      url: http://prometheus-engine-frontend.gke-gmp-system.svc.cluster.local:9090
+      access: proxy
+      isDefault: true
+      editable: true
+
+# Auto-provision dashboard từ ConfigMap
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+    - name: default
+      orgId: 1
+      folder: UniHub
+      type: file
+      disableDeletion: false
+      editable: true
+      options:
+        path: /var/lib/grafana/dashboards/default
+
+dashboardsConfigMaps:
+  default: unihub-grafana-dashboard

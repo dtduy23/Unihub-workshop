@@ -12,11 +12,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"unihub-workshop/internal/config"
 	"unihub-workshop/internal/crypto"
 	"unihub-workshop/internal/database"
 	"unihub-workshop/internal/handler"
+	"unihub-workshop/internal/logger"
+	"unihub-workshop/internal/metrics"
 	"unihub-workshop/internal/middleware"
 	"unihub-workshop/internal/model"
 	"unihub-workshop/internal/queue"
@@ -26,6 +29,9 @@ import (
 )
 
 func main() {
+	// Initialize structured JSON logging (must be first)
+	logger.Init()
+
 	// Set default timezone to Vietnam
 	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
 	if err != nil {
@@ -46,6 +52,9 @@ func main() {
 	if err := database.RunMigrations(pgPool); err != nil {
 		log.Fatalf("[MIGRATION] Failed: %v", err)
 	}
+
+	// Start DB pool metrics collector (every 15s)
+	metrics.StartDBCollector(pgPool, 15*time.Second)
 
 	redisClient := database.NewRedisClient(cfg)
 	defer redisClient.Close()
@@ -124,11 +133,15 @@ func main() {
 	r := chi.NewRouter()
 
 	// Global middleware
-	r.Use(chimw.Logger)
+	r.Use(middleware.StructuredLogger)
+	r.Use(middleware.MetricsMiddleware)
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Timeout(30 * time.Second))
 	r.Use(middleware.CORSMiddleware(cfg.CORSOrigins))
+
+	// Prometheus metrics endpoint
+	r.Handle("/metrics", promhttp.Handler())
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
