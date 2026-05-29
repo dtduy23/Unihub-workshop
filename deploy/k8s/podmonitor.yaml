@@ -1,0 +1,21 @@
+# ============================================
+# PodMonitoring — Google Managed Prometheus
+# ============================================
+# GKE Autopilot tự động scrape /metrics từ API pods mỗi 15 giây
+
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: unihub-api-metrics
+  namespace: unihub
+  labels:
+    app.kubernetes.io/name: unihub
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: unihub-api
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
