@@ -13,14 +13,14 @@ metadata:
     app.kubernetes.io/name: unihub
 data:
   # --- Database ---
-  DB_HOST: "REPLACE_WITH_CLOUDSQL_PRIVATE_IP"  # terraform output cloudsql_private_ip
+  DB_HOST: "10.195.0.3"  # terraform output cloudsql_private_ip
   DB_PORT: "5432"
   DB_NAME: "unihub_workshop"
   DB_USER: "unihub"
   DB_SSLMODE: "require"
 
   # --- Redis ---
-  REDIS_ADDR: "REPLACE_WITH_REDIS_ADDR"  # terraform output redis_addr (host:port)
+  REDIS_ADDR: "10.46.198.51:6379"  # terraform output redis_addr (host:port)
   REDIS_PASSWORD: ""
 
   # --- Server ---
