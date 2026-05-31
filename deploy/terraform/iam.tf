@@ -52,12 +52,16 @@ resource "google_service_account_iam_member" "workload_identity_api" {
   service_account_id = google_service_account.gke_workload.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[unihub/unihub-api]"
+
+  depends_on = [google_container_cluster.autopilot]
 }
 
 resource "google_service_account_iam_member" "workload_identity_worker" {
   service_account_id = google_service_account.gke_workload.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[unihub/unihub-worker]"
+
+  depends_on = [google_container_cluster.autopilot]
 }
 
 # ========== CI/CD Service Account (Jenkins) ==========

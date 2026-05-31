@@ -29,7 +29,7 @@ spec:
       serviceAccountName: unihub-worker
       containers:
       - name: worker
-        image: asia-southeast1-docker.pkg.dev/YOUR_PROJECT_ID/unihub-repo/backend:latest
+        image: asia-southeast1-docker.pkg.dev/test-projectproject/unihub-docker/unihub-backend:latest
         imagePullPolicy: Always
 
         env:
