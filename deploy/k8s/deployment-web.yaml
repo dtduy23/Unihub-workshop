@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
       - name: web
-        image: asia-southeast1-docker.pkg.dev/YOUR_PROJECT_ID/unihub-repo/web:latest
+        image: asia-southeast1-docker.pkg.dev/test-projectproject/unihub-docker/unihub-web:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
