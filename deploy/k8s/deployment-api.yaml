@@ -65,17 +65,17 @@ spec:
 
         resources:
           requests:
-            cpu: "200m"
+            cpu: "500m"
             memory: "256Mi"
           limits:
-            cpu: "500m"
+            cpu: "2000m"    # 2 vCPU per pod
             memory: "512Mi"
 
-      # Đảm bảo các Pod được phân bổ đều trên các Node
+      # Ưu tiên phân bổ đều, nhưng không block nếu thiếu node
       topologySpreadConstraints:
-      - maxSkew: 1
+      - maxSkew: 3
         topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: DoNotSchedule
+        whenUnsatisfiable: ScheduleAnyway
         labelSelector:
           matchLabels:
             app: unihub-api

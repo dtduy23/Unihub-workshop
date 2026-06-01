@@ -51,14 +51,24 @@ func (s *WorkshopService) Create(ctx context.Context, req *model.CreateWorkshopR
 	if err != nil {
 		return nil, fmt.Errorf("invalid end_time format: %w", err)
 	}
+	registrationStartTime, err := time.Parse(time.RFC3339, req.RegistrationStartTime)
+	if err != nil {
+		return nil, fmt.Errorf("invalid registration_start_time format: %w", err)
+	}
+	registrationEndTime, err := time.Parse(time.RFC3339, req.RegistrationEndTime)
+	if err != nil {
+		return nil, fmt.Errorf("invalid registration_end_time format: %w", err)
+	}
 
 	w := &model.Workshop{
 		Title:          req.Title,
 		Speaker:        &req.Speaker,
 		Room:           req.Room,
-		StartTime:      startTime,
-		EndTime:        endTime,
-		Capacity:       req.Capacity,
+		StartTime:             startTime,
+		EndTime:               endTime,
+		RegistrationStartTime: registrationStartTime,
+		RegistrationEndTime:   registrationEndTime,
+		Capacity:              req.Capacity,
 		AvailableSeats: req.Capacity,
 		Price:          req.Price,
 		Summary:        &req.Summary,

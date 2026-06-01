@@ -85,19 +85,6 @@ export function WorkshopFilters({
           </SelectContent>
         </Select>
         
-        {/* Date filter simplified for now */}
-        <Select defaultValue="all">
-          <SelectTrigger className="h-11 w-full sm:w-[160px] bg-background">
-            <SelectValue placeholder="Thời gian" />
-          </SelectTrigger>
-          <SelectContent>
-            {dateFilters.map((filter) => (
-              <SelectItem key={filter.value} value={filter.value}>
-                {filter.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
     </div>
   )

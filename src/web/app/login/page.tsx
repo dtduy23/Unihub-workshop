@@ -34,23 +34,6 @@ export default function LoginPage() {
           {/* Login Form */}
           <LoginForm />
 
-          {/* Divider with Or */}
-          <div className="relative my-8">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-slate-500">hoặc</span>
-            </div>
-          </div>
-
-          {/* Social Login Placeholder */}
-          <p className="text-center text-xs text-slate-500">
-            Cần hỗ trợ? Liên hệ{' '}
-            <a href="mailto:support@unihub.local" className="text-indigo-600 hover:underline font-medium">
-              support@unihub.local
-            </a>
-          </p>
         </div>
 
         {/* Footer Info */}

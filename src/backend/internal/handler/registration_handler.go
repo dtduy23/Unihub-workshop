@@ -114,3 +114,25 @@ func (h *RegistrationHandler) GetByWorkshopID(w http.ResponseWriter, r *http.Req
 	}
 	writeJSON(w, http.StatusOK, model.APIResponse{Success: true, Data: regs})
 }
+
+// Cancel allows a user to cancel their registration
+func (h *RegistrationHandler) Cancel(w http.ResponseWriter, r *http.Request) {
+	registrationID := getURLParam(r, "id")
+	userID := getUserID(r)
+
+	if registrationID == "" {
+		errorResponse(w, http.StatusBadRequest, "Missing registration ID")
+		return
+	}
+
+	err := h.regService.CancelRegistration(r.Context(), userID, registrationID)
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, model.APIResponse{
+		Success: true,
+		Message: "Registration cancelled successfully",
+	})
+}
