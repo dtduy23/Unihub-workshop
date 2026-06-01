@@ -34,7 +34,7 @@ spec:
         value: 100
         periodSeconds: 30
     scaleDown:
-      stabilizationWindowSeconds: 300  # Scale down chậm (5 phút) để tránh flapping
+      stabilizationWindowSeconds: 3600  # Scale down chậm (1 giờ) để giữ capacity sẵn sàng
       policies:
       - type: Percent
         value: 10

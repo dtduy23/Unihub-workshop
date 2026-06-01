@@ -26,19 +26,9 @@ const navItems = [
     icon: CalendarRange 
   },
   { 
-    name: 'Check-in', 
-    href: '/staff/checkin', 
-    icon: ScanLine 
-  },
-  { 
     name: 'Trung tâm Dữ liệu', 
     href: '/admin/data-sync', 
     icon: Database 
-  },
-  { 
-    name: 'Cài đặt', 
-    href: '/admin/settings', 
-    icon: Settings 
   },
 ]
 

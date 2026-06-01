@@ -10,6 +10,8 @@ export interface Workshop {
   room: string
   startTime: string
   endTime: string
+  registrationStartTime: string
+  registrationEndTime: string
   capacity: number
   availableSeats: number
   price: number
@@ -64,7 +66,13 @@ export function useWorkshops() {
 
       let regIds = new Set<string>()
       if (regResponse.success && regResponse.data) {
-        regIds = new Set(regResponse.data.map((r: any) => r.workshopId))
+        // Lọc bỏ các trạng thái không còn hiệu lực (Đã hủy, thất bại, từ chối)
+        const activeRegs = regResponse.data.filter((r: any) => 
+          r.status !== 'CANCELLED' && 
+          r.status !== 'REJECTED' && 
+          r.status !== 'FAILED'
+        )
+        regIds = new Set(activeRegs.map((r: any) => r.workshopId))
         setRegisteredIds(regIds)
       }
 

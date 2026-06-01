@@ -20,7 +20,11 @@ func NewRegistrationRepo(pool *pgxpool.Pool) *RegistrationRepo {
 func (r *RegistrationRepo) Create(ctx context.Context, tx pgx.Tx, reg *model.Registration) error {
 	return tx.QueryRow(ctx,
 		`INSERT INTO registrations (user_id, workshop_id, status, ticket_signature)
-		 VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+		 VALUES ($1, $2, $3, $4) 
+		 ON CONFLICT (user_id, workshop_id) 
+		 DO UPDATE SET status = EXCLUDED.status, ticket_signature = EXCLUDED.ticket_signature, created_at = NOW()
+		 WHERE registrations.status NOT IN ('SUCCESS', 'PENDING_PAYMENT')
+		 RETURNING id, created_at`,
 		reg.UserID, reg.WorkshopID, reg.Status, reg.TicketSignature,
 	).Scan(&reg.ID, &reg.CreatedAt)
 }

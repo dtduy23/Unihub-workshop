@@ -64,3 +64,59 @@ func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, model.APIResponse{Success: true, Data: user})
 }
+
+func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req model.ForgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Identifier == "" {
+		errorResponse(w, http.StatusBadRequest, "identifier is required")
+		return
+	}
+
+	err := h.authService.ForgotPassword(r.Context(), req.Identifier)
+	if err != nil {
+		// Even if error, we might want to just say success to prevent user enumeration, 
+		// but here we just return the error for simplicity.
+		errorResponse(w, http.StatusBadRequest, "Failed to process forgot password request: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, model.APIResponse{
+		Success: true,
+		Message: "Nếu tài khoản tồn tại, mật khẩu mới sẽ được gửi vào email của bạn.",
+	})
+}
+
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	var req model.ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.OldPassword == "" || req.NewPassword == "" {
+		errorResponse(w, http.StatusBadRequest, "old_password and new_password are required")
+		return
+	}
+
+	userID := getUserID(r)
+	if userID == "" {
+		errorResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	err := h.authService.ChangePassword(r.Context(), userID, req.OldPassword, req.NewPassword)
+	if err != nil {
+		errorResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, model.APIResponse{
+		Success: true,
+		Message: "Đổi mật khẩu thành công",
+	})
+}

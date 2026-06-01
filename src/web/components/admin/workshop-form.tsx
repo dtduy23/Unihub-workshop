@@ -47,11 +47,29 @@ const workshopSchema = z.object({
   endTime: z.date({
     required_error: "Vui lòng chọn thời gian kết thúc",
   }),
+  registrationStartTime: z.date({
+    required_error: "Vui lòng chọn thời gian bắt đầu đăng ký",
+  }),
+  registrationEndTime: z.date({
+    required_error: "Vui lòng chọn thời gian kết thúc đăng ký",
+  }),
   capacity: z.coerce.number().min(1, "Sức chứa phải lớn hơn 0"),
   price: z.coerce.number().min(0, "Giá vé không được âm"),
   summary: z.string().min(5, "Bản tóm tắt phải ít nhất 5 ký tự"),
   status: z.enum(["PUBLISHED", "CLOSED", "DELETED"]).default("PUBLISHED"),
   roomLayoutUrl: z.string().optional(),
+}).refine((data) => data.startTime < data.endTime, {
+  message: "Thời gian kết thúc workshop phải sau thời gian bắt đầu",
+  path: ["endTime"],
+}).refine((data) => (data.endTime.getTime() - data.startTime.getTime()) <= 24 * 60 * 60 * 1000, {
+  message: "Thời lượng workshop không được vượt quá 24 giờ",
+  path: ["endTime"],
+}).refine((data) => data.registrationStartTime < data.registrationEndTime, {
+  message: "Thời gian đóng đăng ký phải sau thời gian mở",
+  path: ["registrationEndTime"],
+}).refine((data) => data.registrationEndTime <= data.startTime, {
+  message: "Phải đóng đăng ký trước khi workshop bắt đầu",
+  path: ["registrationEndTime"],
 })
 
 type WorkshopFormValues = z.infer<typeof workshopSchema>
@@ -70,6 +88,8 @@ export function WorkshopForm({ initialData, onSubmit, isEditing = false }: Works
     resolver: zodResolver(workshopSchema),
     defaultValues: initialData ? {
       ...initialData,
+      registrationStartTime: initialData.registrationStartTime ? new Date(initialData.registrationStartTime) : new Date(),
+      registrationEndTime: initialData.registrationEndTime ? new Date(initialData.registrationEndTime) : new Date(),
       startTime: initialData.startTime ? new Date(initialData.startTime) : new Date(),
       endTime: initialData.endTime ? new Date(initialData.endTime) : new Date(),
     } : {
@@ -81,6 +101,8 @@ export function WorkshopForm({ initialData, onSubmit, isEditing = false }: Works
       summary: "",
       status: "PUBLISHED",
       roomLayoutUrl: "/maps/grand-hall.jpg",
+      registrationStartTime: new Date(),
+      registrationEndTime: new Date(new Date().getTime() + 7 * 24 * 60 * 60 * 1000), // Default 1 week
     },
   })
 
@@ -318,6 +340,134 @@ export function WorkshopForm({ initialData, onSubmit, isEditing = false }: Works
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
+                  name="registrationStartTime"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Thời gian mở đăng ký</FormLabel>
+                      <div className="flex gap-2">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant={"outline"}
+                                className={cn(
+                                  "flex-1 pl-3 text-left font-normal h-12",
+                                  !field.value && "text-muted-foreground"
+                                )}
+                              >
+                                {field.value ? (
+                                  format(field.value, "dd/MM/yyyy", { locale: vi })
+                                ) : (
+                                  <span>Chọn ngày</span>
+                                )}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={(date) => {
+                                if (date) {
+                                  const current = field.value || new Date()
+                                  date.setHours(current.getHours())
+                                  date.setMinutes(current.getMinutes())
+                                  field.onChange(date)
+                                }
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <Input
+                          type="time"
+                          className="w-32 h-12 text-center font-bold"
+                          value={field.value ? format(field.value, "HH:mm") : "08:00"}
+                          onChange={(e) => {
+                            if (!e.target.value) return
+                            const [hours, minutes] = e.target.value.split(':').map(Number)
+                            if (isNaN(hours) || isNaN(minutes)) return
+                            const current = field.value || new Date()
+                            const newDate = new Date(current)
+                            newDate.setHours(hours)
+                            newDate.setMinutes(minutes)
+                            field.onChange(newDate)
+                          }}
+                        />
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="registrationEndTime"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Thời gian đóng đăng ký</FormLabel>
+                      <div className="flex gap-2">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant={"outline"}
+                                className={cn(
+                                  "flex-1 pl-3 text-left font-normal h-12",
+                                  !field.value && "text-muted-foreground"
+                                )}
+                              >
+                                {field.value ? (
+                                  format(field.value, "dd/MM/yyyy", { locale: vi })
+                                ) : (
+                                  <span>Chọn ngày</span>
+                                )}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={(date) => {
+                                if (date) {
+                                  const current = field.value || new Date()
+                                  date.setHours(current.getHours())
+                                  date.setMinutes(current.getMinutes())
+                                  field.onChange(date)
+                                }
+                              }}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <Input
+                          type="time"
+                          className="w-32 h-12 text-center font-bold"
+                          value={field.value ? format(field.value, "HH:mm") : "10:00"}
+                          onChange={(e) => {
+                            if (!e.target.value) return
+                            const [hours, minutes] = e.target.value.split(':').map(Number)
+                            if (isNaN(hours) || isNaN(minutes)) return
+                            const current = field.value || new Date()
+                            const newDate = new Date(current)
+                            newDate.setHours(hours)
+                            newDate.setMinutes(minutes)
+                            field.onChange(newDate)
+                          }}
+                        />
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
                   name="startTime"
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
@@ -366,7 +516,9 @@ export function WorkshopForm({ initialData, onSubmit, isEditing = false }: Works
                           className="w-32 h-12 text-center font-bold"
                           value={field.value ? format(field.value, "HH:mm") : "08:00"}
                           onChange={(e) => {
+                            if (!e.target.value) return
                             const [hours, minutes] = e.target.value.split(':').map(Number)
+                            if (isNaN(hours) || isNaN(minutes)) return
                             const current = field.value || new Date()
                             const newDate = new Date(current)
                             newDate.setHours(hours)
@@ -430,7 +582,9 @@ export function WorkshopForm({ initialData, onSubmit, isEditing = false }: Works
                           className="w-32 h-12 text-center font-bold"
                           value={field.value ? format(field.value, "HH:mm") : "10:00"}
                           onChange={(e) => {
+                            if (!e.target.value) return
                             const [hours, minutes] = e.target.value.split(':').map(Number)
+                            if (isNaN(hours) || isNaN(minutes)) return
                             const current = field.value || new Date()
                             const newDate = new Date(current)
                             newDate.setHours(hours)
