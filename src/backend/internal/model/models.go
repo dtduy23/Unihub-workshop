@@ -46,15 +46,17 @@ type Workshop struct {
 	Description    *string        `json:"description,omitempty"`
 	Speaker        *string        `json:"speaker"`
 	Room           string         `json:"room"`
-	StartTime      time.Time      `json:"start_time"`
-	EndTime        time.Time      `json:"end_time"`
-	Capacity       int            `json:"capacity"`
-	AvailableSeats int            `json:"available_seats"`
-	Price          float64        `json:"price"`
-	Summary        *string        `json:"summary,omitempty"`
-	Status         WorkshopStatus `json:"status"`
-	RoomLayoutURL  *string        `json:"room_layout_url"`
-	CreatedAt      time.Time      `json:"created_at"`
+	StartTime             time.Time      `json:"start_time"`
+	EndTime               time.Time      `json:"end_time"`
+	RegistrationStartTime time.Time      `json:"registration_start_time"`
+	RegistrationEndTime   time.Time      `json:"registration_end_time"`
+	Capacity              int            `json:"capacity"`
+	AvailableSeats        int            `json:"available_seats"`
+	Price                 float64        `json:"price"`
+	Summary               *string        `json:"summary,omitempty"`
+	Status                WorkshopStatus `json:"status"`
+	RoomLayoutURL         *string        `json:"room_layout_url"`
+	CreatedAt             time.Time      `json:"created_at"`
 }
 
 // ==========================================
@@ -196,6 +198,15 @@ type LoginRequest struct {
 	Password  string `json:"password"`
 }
 
+type ForgotPasswordRequest struct {
+	Identifier string `json:"identifier"` // Could be student_id or email
+}
+
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
 type LoginResponse struct {
 	Token string `json:"token"`
 	User  User   `json:"user"`
@@ -218,25 +229,29 @@ type CreateWorkshopRequest struct {
 	Title         string  `json:"title"`
 	Speaker       string  `json:"speaker"`
 	Room          string  `json:"room"`
-	StartTime     string  `json:"start_time"`
-	EndTime       string  `json:"end_time"`
-	Capacity      int     `json:"capacity"`
-	Price         float64 `json:"price"`
-	Summary       string  `json:"summary"`
-	RoomLayoutURL string  `json:"room_layout_url"`
+	StartTime             string  `json:"start_time"`
+	EndTime               string  `json:"end_time"`
+	RegistrationStartTime string  `json:"registration_start_time"`
+	RegistrationEndTime   string  `json:"registration_end_time"`
+	Capacity              int     `json:"capacity"`
+	Price                 float64 `json:"price"`
+	Summary               string  `json:"summary"`
+	RoomLayoutURL         string  `json:"room_layout_url"`
 }
 
 type UpdateWorkshopRequest struct {
 	Title         *string  `json:"title,omitempty"`
 	Speaker       *string  `json:"speaker,omitempty"`
 	Room          *string  `json:"room,omitempty"`
-	StartTime     *string  `json:"start_time,omitempty"`
-	EndTime       *string  `json:"end_time,omitempty"`
-	Capacity      *int     `json:"capacity,omitempty"`
-	Price         *float64 `json:"price,omitempty"`
-	Status        *string  `json:"status,omitempty"`
-	Summary       *string  `json:"summary,omitempty"`
-	RoomLayoutURL *string  `json:"room_layout_url,omitempty"`
+	StartTime             *string  `json:"start_time,omitempty"`
+	EndTime               *string  `json:"end_time,omitempty"`
+	RegistrationStartTime *string  `json:"registration_start_time,omitempty"`
+	RegistrationEndTime   *string  `json:"registration_end_time,omitempty"`
+	Capacity              *int     `json:"capacity,omitempty"`
+	Price                 *float64 `json:"price,omitempty"`
+	Status                *string  `json:"status,omitempty"`
+	Summary               *string  `json:"summary,omitempty"`
+	RoomLayoutURL         *string  `json:"room_layout_url,omitempty"`
 }
 
 type CheckinRequest struct {
@@ -270,12 +285,13 @@ type QueueMessage struct {
 }
 
 type NotificationEvent struct {
-	EventID        string `json:"event_id"`
-	UserID         string `json:"user_id"`
-	RegistrationID string `json:"registration_id"`
-	Type           string `json:"type"`
-	WorkshopTitle  string `json:"workshop_title"`
-	TicketSignature string `json:"ticket_signature,omitempty"`
+	EventID        string            `json:"event_id"`
+	UserID         string            `json:"user_id"`
+	RegistrationID string            `json:"registration_id"`
+	Type           string            `json:"type"`
+	WorkshopTitle  string            `json:"workshop_title"`
+	TicketSignature string           `json:"ticket_signature,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
 type APIResponse struct {

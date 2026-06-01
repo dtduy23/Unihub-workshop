@@ -58,6 +58,18 @@ func (r *UserRepo) UpsertFromCSV(ctx context.Context, studentID, passwordHash, f
 	return err
 }
 
+func (r *UserRepo) UpdatePassword(ctx context.Context, userID, newPasswordHash string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+		newPasswordHash, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+	return nil
+}
+
+
 func (r *UserRepo) GetStats(ctx context.Context) (map[string]int, error) {
 	stats := make(map[string]int)
 	rows, err := r.pool.Query(ctx, `SELECT role, COUNT(*) FROM users GROUP BY role`)

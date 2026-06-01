@@ -46,6 +46,7 @@ export function NotificationBell() {
   const { notifications, loading: loadingNotifs, unreadCount } = useNotifications()
   const [paymentInfo, setPaymentInfo] = useState<{ amount: number; url: string; title: string } | null>(null)
   const [showPaymentDialog, setShowPaymentDialog] = useState(false)
+  const [cancelingId, setCancelingId] = useState<string | null>(null)
 
   const fetchRegistrations = useCallback(async () => {
     if (!auth.isAuthenticated()) return
@@ -120,6 +121,25 @@ export function NotificationBell() {
       } else {
         toast.error(errorMsg || 'Thanh toán thất bại')
       }
+    }
+  }
+
+  const handleCancel = async (regId: string) => {
+    if (!window.confirm("Bạn có chắc chắn muốn hủy vé này không? Hành động này không thể hoàn tác và bạn sẽ mất chỗ.")) return;
+    
+    setCancelingId(regId)
+    try {
+      const res = await api.post<any>(`/api/v1/registrations/${regId}/cancel`)
+      if (res.success) {
+        toast.success("Đã hủy vé thành công!")
+        fetchRegistrations()
+      } else {
+        toast.error("Không thể hủy vé: " + res.message)
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Đã xảy ra lỗi khi hủy vé")
+    } finally {
+      setCancelingId(null)
     }
   }
 
@@ -257,25 +277,49 @@ export function NotificationBell() {
                       </div>
 
                       {reg.status === 'PENDING_PAYMENT' ? (
-                        <Button 
-                          variant="default" 
-                          size="sm" 
-                          className="w-full mt-4 h-8 text-[10px] font-black bg-primary hover:bg-primary/90 text-white transition-all gap-2 tracking-widest shadow-md shadow-primary/20"
-                          onClick={() => handlePayResume(reg)}
-                        >
-                          <Zap className="h-3.5 w-3.5" />
-                          THANH TOÁN NGAY
-                        </Button>
+                        <div className="flex gap-2 mt-4">
+                          <Button 
+                            variant="default" 
+                            size="sm" 
+                            className="flex-1 h-8 text-[10px] font-black bg-primary hover:bg-primary/90 text-white transition-all gap-1 tracking-widest shadow-md shadow-primary/20"
+                            onClick={() => handlePayResume(reg)}
+                          >
+                            <Zap className="h-3.5 w-3.5" />
+                            THANH TOÁN
+                          </Button>
+                          <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            className="h-8 text-[10px] font-black transition-all gap-1 tracking-widest"
+                            disabled={cancelingId === reg.id}
+                            onClick={() => handleCancel(reg.id)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            {cancelingId === reg.id ? "..." : "HỦY"}
+                          </Button>
+                        </div>
                       ) : (
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="w-full mt-4 h-8 text-[10px] font-black border-primary/20 hover:bg-primary hover:text-white transition-all gap-2 tracking-widest"
-                          onClick={() => openQR(reg)}
-                        >
-                          <QrCode className="h-3.5 w-3.5" />
-                          XEM MÃ QR
-                        </Button>
+                        <div className="flex gap-2 mt-4">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1 h-8 text-[10px] font-black border-primary/20 hover:bg-primary hover:text-white transition-all gap-1 tracking-widest"
+                            onClick={() => openQR(reg)}
+                          >
+                            <QrCode className="h-3.5 w-3.5" />
+                            XEM MÃ QR
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8 text-[10px] font-black border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all gap-1 tracking-widest"
+                            disabled={cancelingId === reg.id}
+                            onClick={() => handleCancel(reg.id)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            {cancelingId === reg.id ? "..." : "HỦY"}
+                          </Button>
+                        </div>
                       )}
                     </div>
                   ))}
@@ -283,11 +327,6 @@ export function NotificationBell() {
               </TabsContent>
             </ScrollArea>
           </Tabs>
-          <div className="p-3 bg-slate-50 text-center border-t">
-            <button className="text-[10px] font-bold text-slate-400 hover:text-primary uppercase tracking-widest transition-colors">
-              Đánh dấu đã đọc tất cả
-            </button>
-          </div>
         </PopoverContent>
       </Popover>
 

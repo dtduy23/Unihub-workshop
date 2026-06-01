@@ -201,8 +201,8 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 	if err := s.regRepo.Create(ctx, tx, reg); err != nil {
 		tx.Rollback(ctx)
 		
-		// Xử lý lỗi trùng lặp (Idempotency)
-		if strings.Contains(err.Error(), "uq_user_workshop") {
+		// Xử lý lỗi trùng lặp (Idempotency hoặc do UPSERT bị loại trừ)
+		if strings.Contains(err.Error(), "uq_user_workshop") || strings.Contains(err.Error(), "no rows in result set") {
 			log.Printf("[WORKER] Duplicate registration attempt: user=%s workshop=%s", msg.UserID, msg.WorkshopID)
 			s.SetStatus(msg.CorrelationID, &model.RegistrationStatusResponse{
 				CorrelationID: msg.CorrelationID,
@@ -320,4 +320,46 @@ func (s *RegistrationService) GetUserRegistrationsWithWorkshop(ctx context.Conte
 
 func (s *RegistrationService) GetByWorkshop(ctx context.Context, workshopID string) ([]model.RegistrationWithUser, error) {
 	return s.regRepo.FindByWorkshopWithUser(ctx, workshopID)
+}
+
+// CancelRegistration cancels an existing registration and frees up the seat
+func (s *RegistrationService) CancelRegistration(ctx context.Context, userID, registrationID string) error {
+	// 1. Fetch registration
+	reg, err := s.regRepo.FindByID(ctx, registrationID)
+	if err != nil {
+		return fmt.Errorf("registration not found: %w", err)
+	}
+
+	// 2. Validate ownership
+	if reg.UserID != userID {
+		return fmt.Errorf("unauthorized to cancel this registration")
+	}
+
+	// 3. Validate status
+	if reg.Status != model.RegSuccess && reg.Status != model.RegPendingPayment {
+		return fmt.Errorf("only SUCCESS or PENDING_PAYMENT registrations can be cancelled")
+	}
+
+	// 4. Update status in DB
+	err = s.regRepo.UpdateStatus(ctx, registrationID, model.RegCancelled)
+	if err != nil {
+		return fmt.Errorf("failed to cancel registration: %w", err)
+	}
+
+	// 5. Increment available seats in DB
+	err = s.workshopRepo.IncrementSeat(ctx, reg.WorkshopID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to increment seat in DB for workshop %s after cancellation: %v", reg.WorkshopID, err)
+		// We log but don't fail the cancellation if DB increment fails, although this is rare.
+	}
+
+	// 6. Increment available seats in Redis Cache
+	err = s.seatLimiter.ReleaseSeat(ctx, reg.WorkshopID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to release seat in Redis for workshop %s: %v", reg.WorkshopID, err)
+	}
+	
+	log.Printf("[REGISTRATION] Cancelled: registration=%s user=%s workshop=%s", registrationID, userID, reg.WorkshopID)
+
+	return nil
 }

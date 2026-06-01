@@ -100,7 +100,7 @@ func main() {
 	}
 
 	// Initialize services
-	authService := service.NewAuthService(userRepo, cfg.AuthSecret)
+	authService := service.NewAuthService(userRepo, cfg.AuthSecret, publisher)
 	workshopService := service.NewWorkshopService(workshopRepo)
 	paymentService := service.NewPaymentService(paymentRepo, regRepo, workshopRepo, userRepo, rsaProvider, publisher, redisClient, seatLimiter, cfg.PaymentWebhookSecret, cfg.PaymentGatewayURL)
 	regService := service.NewRegistrationService(regRepo, workshopRepo, userRepo, paymentService, rsaProvider, publisher, redisClient, waitingRoom, seatLimiter)
@@ -152,6 +152,7 @@ func main() {
 	// Public routes
 	r.Post("/api/v1/auth/login", authHandler.Login)
 	r.Get("/api/v1/auth/public-key", authHandler.GetPublicKey)
+	r.Post("/api/v1/auth/forgot-password", authHandler.ForgotPassword)
 
 	// Payment webhook (public, signature-verified)
 	r.Post("/api/v1/payment/webhook", paymentHandler.Webhook)
@@ -185,6 +186,7 @@ func main() {
 
 		// User profile
 		r.Get("/api/v1/auth/me", authHandler.GetMe)
+		r.Post("/api/v1/auth/change-password", authHandler.ChangePassword)
 
 		// Notifications (all authenticated users)
 		r.Get("/api/v1/notifications", notifHandler.GetMyNotifications)
@@ -194,6 +196,7 @@ func main() {
 			r.Use(middleware.RequireRole(model.RoleStudent, model.RoleAdmin))
 
 			r.Post("/api/v1/registrations", regHandler.Register)
+			r.Post("/api/v1/registrations/{id}/cancel", regHandler.Cancel)
 			r.Get("/api/v1/registrations/waiting-room/{workshopId}", regHandler.GetWaitingRoomStatus)
 			r.Get("/api/v1/registrations/status/{correlationId}", regHandler.GetStatus)
 			r.Get("/api/v1/registrations/my", regHandler.MyRegistrations)

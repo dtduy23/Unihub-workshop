@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { api, auth, APIError } from '@/lib/api-client'
+import { ForgotPasswordDialog } from './forgot-password-dialog'
 
 /**
  * LoginForm — Đăng nhập qua Go Backend API.
@@ -36,8 +37,8 @@ export function LoginForm() {
   const [formData, setFormData] = useState({
     studentId: '',
     password: '',
-    rememberMe: false,
   })
+  const [showForgotDialog, setShowForgotDialog] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -72,10 +73,11 @@ export function LoginForm() {
       // Go Backend dùng: ORGANIZER, STAFF, STUDENT
       console.log('User Role from Backend:', user.role)
       const role = user.role?.toUpperCase()
-      const isAdmin = role === 'STAFF' || role === 'ADMIN'
 
-      if (isAdmin) {
+      if (role === 'ADMIN') {
         router.push('/admin')
+      } else if (role === 'STAFF') {
+        router.push('/staff/checkin')
       } else {
         router.push('/')
       }
@@ -154,27 +156,17 @@ export function LoginForm() {
         </div>
       </div>
 
-      {/* Remember Me & Forgot Password */}
-      <div className="flex items-center justify-between text-sm">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <Checkbox
-            name="rememberMe"
-            checked={formData.rememberMe}
-            onCheckedChange={(checked) =>
-              setFormData(prev => ({
-                ...prev,
-                rememberMe: checked === true,
-              }))
-            }
-          />
-          <span className="text-foreground">Ghi nhớ tôi</span>
-        </label>
-        <a
-          href="#"
-          className="text-primary hover:underline font-medium"
+
+
+      {/* Forgot Password Link */}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setShowForgotDialog(true)}
+          className="text-sm font-medium text-primary hover:underline"
         >
           Quên mật khẩu?
-        </a>
+        </button>
       </div>
 
       {/* Submit Button */}
@@ -186,16 +178,7 @@ export function LoginForm() {
         {isLoading ? 'Đang đăng nhập...' : 'Đăng nhập'}
       </Button>
 
-      {/* Sign Up Link */}
-      <p className="text-center text-sm text-muted-foreground">
-        Chưa có tài khoản?{' '}
-        <a
-          href="#"
-          className="text-primary hover:underline font-medium"
-        >
-          Đăng ký ngay
-        </a>
-      </p>
+      <ForgotPasswordDialog open={showForgotDialog} onOpenChange={setShowForgotDialog} />
     </form>
   )
 }

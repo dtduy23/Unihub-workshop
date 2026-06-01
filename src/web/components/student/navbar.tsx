@@ -1,6 +1,7 @@
 "use client"
 
-import { Bell, LogOut, User } from "lucide-react"
+import { useState } from "react"
+import { Bell, LogOut, User, KeyRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useRouter } from "next/navigation"
@@ -13,9 +14,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ChangePasswordDialog } from "./change-password-dialog"
 
 export function Navbar() {
   const router = useRouter()
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
   const handleLogout = () => {
     // 1. Xóa session cookie
@@ -61,6 +64,11 @@ export function Navbar() {
                 </div>
               </div>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowChangePassword(true)}>
+                <KeyRound className="mr-2 h-4 w-4" />
+                <span>Đổi mật khẩu</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem 
                 className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                 onClick={handleLogout}
@@ -72,6 +80,7 @@ export function Navbar() {
           </DropdownMenu>
         </div>
       </div>
+      <ChangePasswordDialog open={showChangePassword} onOpenChange={setShowChangePassword} />
     </header>
   )
 }
