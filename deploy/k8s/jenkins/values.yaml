@@ -1,0 +1,53 @@
+# ============================================
+# Jenkins Helm Values — GKE Autopilot
+# ============================================
+# Cài đặt:
+#   helm repo add jenkins https://charts.jenkins.io
+#   helm install jenkins jenkins/jenkins -n unihub -f values.yaml
+#
+# Truy cập: kubectl port-forward svc/jenkins 8081:8080 -n unihub
+#           → http://localhost:8081
+
+controller:
+  # Admin credentials
+  adminUser: admin
+  adminPassword: unihub-jenkins-2026
+
+  # Resources (GKE Autopilot yêu cầu khai báo)
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "4Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+
+  # Plugins cần thiết cho CI/CD
+  installPlugins:
+    - kubernetes:latest
+    - workflow-aggregator:latest
+    - git:latest
+    - docker-workflow:latest
+    - google-oauth-plugin:latest
+    - pipeline-stage-view:latest
+    - blueocean:latest
+
+  # Service
+  serviceType: ClusterIP
+  servicePort: 8080
+
+# Persistence — lưu jobs khi pod restart
+persistence:
+  enabled: true
+  size: 10Gi
+
+# Agent — chạy build trên dynamic pods
+agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"

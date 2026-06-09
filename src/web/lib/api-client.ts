@@ -211,6 +211,30 @@ export const api = {
    */
   upload: <T = unknown>(endpoint: string, formData: FormData) =>
     fetchAPI<T>(endpoint, { method: 'POST', body: formData }),
+
+  /**
+   * Tải file Blob (CSV, PDF...) và kích hoạt tải xuống trình duyệt
+   */
+  download: async (endpoint: string, filename: string) => {
+    const url = `${API_BASE_URL}${endpoint}`
+    const token = getAuthToken()
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    const response = await fetch(url, { headers })
+    if (!response.ok) {
+        throw new Error('Lỗi khi tải file')
+    }
+    const blob = await response.blob()
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = downloadUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(downloadUrl)
+  },
 }
 
 // ==========================================

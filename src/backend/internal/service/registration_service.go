@@ -1,7 +1,9 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"fmt"
 	"log"
 	"strings"
@@ -362,4 +364,62 @@ func (s *RegistrationService) CancelRegistration(ctx context.Context, userID, re
 	log.Printf("[REGISTRATION] Cancelled: registration=%s user=%s workshop=%s", registrationID, userID, reg.WorkshopID)
 
 	return nil
+}
+
+// ExportCSV generates a CSV file of registrations for a workshop
+func (s *RegistrationService) ExportCSV(ctx context.Context, workshopID string, exportType string) ([]byte, error) {
+	regs, err := s.GetByWorkshop(ctx, workshopID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch registrations: %w", err)
+	}
+
+	var buf bytes.Buffer
+	// Write UTF-8 BOM so Excel reads it correctly
+	buf.Write([]byte("\xEF\xBB\xBF"))
+
+	cw := csv.NewWriter(&buf)
+	
+	// Headers
+	_ = cw.Write([]string{"STT", "Mã sinh viên", "Họ và tên", "Email", "Trạng thái", "Đã điểm danh", "Ngày đăng ký"})
+
+	stt := 1
+	for _, reg := range regs {
+		// Filter based on type
+		if exportType == "attended" {
+			if reg.Status != model.RegSuccess || !reg.IsCheckedIn {
+				continue
+			}
+		} else { // "registered" or default
+			if reg.Status != model.RegSuccess && reg.Status != model.RegPendingPayment {
+				continue
+			}
+		}
+
+		var checkedIn string
+		if reg.IsCheckedIn {
+			checkedIn = "Có"
+		} else {
+			checkedIn = "Không"
+		}
+
+		dateStr := reg.CreatedAt.Local().Format("02/01/2006 15:04:05")
+
+		_ = cw.Write([]string{
+			fmt.Sprintf("%d", stt),
+			reg.StudentID,
+			reg.FullName,
+			reg.Email,
+			string(reg.Status),
+			checkedIn,
+			dateStr,
+		})
+		stt++
+	}
+	cw.Flush()
+	
+	if err := cw.Error(); err != nil {
+		return nil, fmt.Errorf("error writing csv: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }
