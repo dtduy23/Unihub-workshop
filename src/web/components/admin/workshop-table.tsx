@@ -1,8 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { Pencil, Trash2, ChevronLeft, ChevronRight, MoreHorizontal, QrCode } from "lucide-react"
+import { Pencil, Trash2, ChevronLeft, ChevronRight, MoreHorizontal, QrCode, DownloadCloud } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { toast } from "sonner"
+import { api } from "@/lib/api-client"
 import {
   Table,
   TableBody,
@@ -83,6 +85,17 @@ export function WorkshopTable({ workshops, onEdit, onDelete, showActions = true 
       hour: "2-digit",
       minute: "2-digit",
     }).format(date)
+  }
+
+  const handleDownloadCSV = async (workshop: Workshop, type: 'registered' | 'attended') => {
+    try {
+      toast.info("Đang chuẩn bị file CSV...")
+      const filename = `workshop_${workshop.id}_${type}.csv`
+      await api.download(`/api/v1/registrations/workshop/${workshop.id}/export?type=${type}`, filename)
+      toast.success("Tải file thành công")
+    } catch (err) {
+      toast.error("Lỗi khi tải file CSV")
+    }
   }
 
   return (
@@ -202,6 +215,20 @@ export function WorkshopTable({ workshops, onEdit, onDelete, showActions = true 
                           >
                             <QrCode className="mr-2 h-4 w-4" />
                             Xem mã QR
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleDownloadCSV(workshop, 'registered')}
+                            className="cursor-pointer font-medium"
+                          >
+                            <DownloadCloud className="mr-2 h-4 w-4" />
+                            Xuất DS Đăng ký
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleDownloadCSV(workshop, 'attended')}
+                            className="cursor-pointer font-medium"
+                          >
+                            <DownloadCloud className="mr-2 h-4 w-4" />
+                            Xuất DS Điểm danh
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => onDelete?.(workshop)}
