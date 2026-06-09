@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"unihub-workshop/internal/model"
@@ -135,4 +136,22 @@ func (h *RegistrationHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "Registration cancelled successfully",
 	})
+}
+
+func (h *RegistrationHandler) ExportWorkshopCSV(w http.ResponseWriter, r *http.Request) {
+	workshopID := getURLParam(r, "workshopId")
+	exportType := r.URL.Query().Get("type") // "registered" or "attended"
+
+	csvData, err := h.regService.ExportCSV(r.Context(), workshopID, exportType)
+	if err != nil {
+		errorResponse(w, http.StatusInternalServerError, "Failed to generate CSV export")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="workshop_%s_%s.csv"`, workshopID, exportType))
+	w.WriteHeader(http.StatusOK)
+
+	// Write CSV payload directly
+	w.Write(csvData)
 }

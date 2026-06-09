@@ -227,6 +227,7 @@ func main() {
 			r.Post("/api/v1/admin/workshops/{workshopId}/summary", adminHandler.UploadPDF)
 			r.Post("/api/v1/ai/summarize", aiHandler.SummarizePDF)
 			r.Get("/api/v1/registrations/workshop/{workshopId}", regHandler.GetByWorkshopID)
+			r.Get("/api/v1/registrations/workshop/{workshopId}/export", regHandler.ExportWorkshopCSV)
 			r.Get("/api/v1/admin/stats", adminHandler.GetStats)
 			r.Get("/api/v1/admin/payments/pending", paymentHandler.GetPendingPayments)
 			r.Get("/api/v1/admin/payment/gateway-status", paymentHandler.GetGatewayStatus)
