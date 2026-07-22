@@ -13,9 +13,7 @@ metadata:
     app.kubernetes.io/name: unihub
     app.kubernetes.io/component: worker
 spec:
-  replicas: 1  # Cố định — KHÔNG scale
-  strategy:
-    type: Recreate  # Đảm bảo chỉ có 1 instance chạy tại mọi thời điểm
+  replicas: 2  # Demo localhost: 2 worker replicas (1 CPU each)
   selector:
     matchLabels:
       app: unihub-worker
@@ -44,8 +42,8 @@ spec:
 
         resources:
           requests:
-            cpu: "200m"
+            cpu: "1"        # 1 CPU per pod (Demo localhost 16 CPUs)
             memory: "256Mi"
           limits:
-            cpu: "500m"
+            cpu: "1"        # 1 CPU per pod
             memory: "512Mi"

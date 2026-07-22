@@ -14,6 +14,14 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ../data/init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
       - ./migrations/002_seed_data.sql:/docker-entrypoint-initdb.d/02_seed.sql
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        requests:
+          cpus: '1.0'
+          memory: 512M
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U unihub -d unihub_workshop"]
       interval: 5s
@@ -25,6 +33,14 @@ services:
     container_name: unihub-redis
     ports:
       - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        requests:
+          cpus: '1.0'
+          memory: 256M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -40,6 +56,14 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        requests:
+          cpus: '1.0'
+          memory: 512M
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -52,6 +76,14 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        requests:
+          cpus: '1.0'
+          memory: 128M
 
 volumes:
   postgres_data:

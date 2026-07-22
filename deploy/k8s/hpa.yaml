@@ -18,7 +18,7 @@ spec:
     kind: Deployment
     name: unihub-api
   minReplicas: 2
-  maxReplicas: 20
+  maxReplicas: 16  # Scale up to 16 replicas (1 CPU each) on a 16 CPU machine
   metrics:
   - type: Resource
     resource:

@@ -13,23 +13,23 @@ metadata:
     app.kubernetes.io/name: unihub
 data:
   # --- Database ---
-  DB_HOST: "10.195.0.3"  # terraform output cloudsql_private_ip
+  DB_HOST: "localhost"  # Localhost demo: postgres on 5433 or k8s postgres
   DB_PORT: "5432"
   DB_NAME: "unihub_workshop"
   DB_USER: "unihub"
-  DB_SSLMODE: "require"
+  DB_SSLMODE: "disable"
 
   # --- Redis ---
-  REDIS_ADDR: "10.46.198.51:6379"  # terraform output redis_addr (host:port)
+  REDIS_ADDR: "localhost:6379"  # Localhost demo
   REDIS_PASSWORD: ""
 
   # --- Server ---
   SERVER_PORT: "8080"
-  CORS_ORIGINS: "https://unihub.yourdomain.dev"
+  CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
 
   # --- SMTP ---
-  SMTP_HOST: "smtp.gmail.com"
-  SMTP_PORT: "587"
+  SMTP_HOST: "localhost"
+  SMTP_PORT: "1025"
   SMTP_FROM: "noreply@unihub.edu.vn"
 
   # --- AI ---
@@ -47,10 +47,10 @@ data:
   RATE_LIMIT_TTL: "300"
 
   # --- Migration ---
-  RUN_SEED: "true"  # Đổi thành "false" sau khi seed data lần đầu
+  RUN_SEED: "true"
 
   # --- Payment ---
-  PAYMENT_GATEWAY_URL: "http://unihub-api-service.unihub.svc.cluster.local/mock/payment"
+  PAYMENT_GATEWAY_URL: "http://localhost:8080/mock/payment"
 
 ---
 
@@ -64,4 +64,4 @@ metadata:
     app.kubernetes.io/name: unihub
     app.kubernetes.io/component: web
 data:
-  NEXT_PUBLIC_API_URL: "https://api.unihub.yourdomain.dev"
+  NEXT_PUBLIC_API_URL: "http://localhost:8080"
