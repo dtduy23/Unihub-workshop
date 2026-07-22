@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/name: unihub
     app.kubernetes.io/component: api
 spec:
-  replicas: 2
+  replicas: 12  # Localhost 16 CPUs demo: 12 API replicas + 2 Web + 2 Worker = 16 CPUs (1 CPU/replica)
   selector:
     matchLabels:
       app: unihub-api
@@ -65,11 +65,11 @@ spec:
 
         resources:
           requests:
-            cpu: "500m"
-            memory: "256Mi"
-          limits:
-            cpu: "2000m"    # 2 vCPU per pod
+            cpu: "1"        # 1 CPU per pod (Demo localhost 16 CPUs)
             memory: "512Mi"
+          limits:
+            cpu: "1"        # 1 CPU per pod
+            memory: "1Gi"
 
       # Ưu tiên phân bổ đều, nhưng không block nếu thiếu node
       topologySpreadConstraints:
