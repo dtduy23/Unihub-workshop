@@ -203,7 +203,9 @@ backend/
 │   ├── repository/              # Data access layer
 │   ├── queue/                   # RabbitMQ publisher/consumer
 │   ├── circuitbreaker/          # Circuit Breaker pattern
-│   └── ratelimiter/             # Token Bucket (Redis + local)
+│   ├── ratelimiter/             # API Rate Limiter (Token Bucket Redis + local)
+│   ├── waitingroom/             # Virtual Waiting Room (Priority queue + Heartbeat)
+│   └── seatlimiter/             # Redis Seat Reservation Cache (Double-check shield)
 ├── migrations/                  # SQL seed data
 ├── data/                        # Sample CSV
 ├── docker-compose.yml           # Infrastructure

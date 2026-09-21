@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"unihub-workshop/internal/model"
-	"unihub-workshop/internal/ratelimiter"
 	"unihub-workshop/internal/service"
+	"unihub-workshop/internal/waitingroom"
 )
 
 type RegistrationHandler struct {
@@ -34,11 +34,11 @@ func (h *RegistrationHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Only users with an active token can proceed to the registration queue.
 	status, err := h.regService.CheckWaitingRoom(r.Context(), req.WorkshopID, userID)
 	if err != nil {
-		errorResponse(w, http.StatusInternalServerError, "Failed to check waiting room")
+		errorResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if status.Status == ratelimiter.QueueWaiting || status.Status == ratelimiter.QueueAlreadyQueued {
+	if status.Status == waitingroom.QueueWaiting || status.Status == waitingroom.QueueAlreadyQueued {
 		// User is in queue, tell them to wait
 		writeJSON(w, http.StatusTooManyRequests, model.APIResponse{
 			Success: false,
@@ -78,7 +78,7 @@ func (h *RegistrationHandler) GetWaitingRoomStatus(w http.ResponseWriter, r *htt
 
 	status, err := h.regService.CheckWaitingRoom(r.Context(), workshopID, userID)
 	if err != nil {
-		errorResponse(w, http.StatusInternalServerError, "Failed to fetch waiting room status")
+		errorResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

@@ -12,14 +12,14 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../data/init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
-      - ./migrations/002_seed_data.sql:/docker-entrypoint-initdb.d/02_seed.sql
+      - ./internal/database/migrations/001_init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./internal/database/migrations/002_seed_data.sql:/docker-entrypoint-initdb.d/02_seed.sql
     deploy:
       resources:
         limits:
           cpus: '1.0'
           memory: 1G
-        requests:
+        reservations:
           cpus: '1.0'
           memory: 512M
     healthcheck:
@@ -38,7 +38,7 @@ services:
         limits:
           cpus: '1.0'
           memory: 512M
-        requests:
+        reservations:
           cpus: '1.0'
           memory: 256M
     healthcheck:
@@ -61,7 +61,7 @@ services:
         limits:
           cpus: '1.0'
           memory: 1G
-        requests:
+        reservations:
           cpus: '1.0'
           memory: 512M
     healthcheck:
@@ -81,7 +81,7 @@ services:
         limits:
           cpus: '1.0'
           memory: 256M
-        requests:
+        reservations:
           cpus: '1.0'
           memory: 128M
 

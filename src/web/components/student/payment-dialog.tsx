@@ -49,30 +49,51 @@ export function PaymentDialog({ open, onOpenChange, amount, paymentUrl, workshop
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const [isVerifying, setIsVerifying] = useState(false)
+  const getFullTxId = () => {
+    try {
+      const url = new URL(paymentUrl, window.location.origin)
+      return url.searchParams.get("tx") || ""
+    } catch {
+      return ""
+    }
+  }
 
-  const handleTransferred = () => {
-    setIsVerifying(true)
-    // Hiển thị thông báo ghi nhận ngay lập tức
-    toast.success("Đã ghi nhận thông báo", {
-      id: "payment-recorded",
-      description: "Hệ thống đang kiểm tra giao dịch với ngân hàng. Vé sẽ được cập nhật tự động sau ít phút."
-    })
-    
-    // Đóng dialog sau 1.5 giây để tạo cảm giác hệ thống đang phản hồi
-    setTimeout(() => {
-      setIsVerifying(false)
+  const handleTransferred = async () => {
+    const txId = getFullTxId()
+    if (!txId) {
       onOpenChange(false)
-    }, 1500)
+      return
+    }
+
+    setIsVerifying(true)
+    try {
+      await api.post('/api/v1/payment/webhook', {
+        transaction_id: txId,
+        status: 'SUCCESS',
+        signature: 'MOCK_SIGNATURE'
+      })
+
+      toast.success("Thanh toán thành công!", {
+        id: "payment-recorded",
+        description: "Đã hoàn thành thanh toán! Vé tham gia đã được cấp vào tài khoản của bạn."
+      })
+
+      window.dispatchEvent(new CustomEvent('registration-success'))
+      window.dispatchEvent(new CustomEvent('payment-success'))
+
+      setTimeout(() => {
+        onOpenChange(false)
+      }, 500)
+    } catch {
+      toast.error("Không thể hoàn tất thanh toán. Vui lòng thử lại sau.")
+    } finally {
+      setIsVerifying(false)
+    }
   }
 
   const getTxId = () => {
-    try {
-      const url = new URL(paymentUrl, window.location.origin)
-      return url.searchParams.get("tx")?.slice(0, 8).toUpperCase() || "UNIPAY"
-    } catch {
-      return "UNIPAY"
-    }
+    const full = getFullTxId()
+    return full ? full.slice(0, 8).toUpperCase() : "UNIPAY"
   }
 
   const progress = (timeLeft / 900) * 100
@@ -178,7 +199,7 @@ export function PaymentDialog({ open, onOpenChange, amount, paymentUrl, workshop
                     <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     Đang kiểm tra...
                   </div>
-                ) : "Tôi đã chuyển khoản"}
+                ) : "Hoàn tất thanh toán ngay"}
               </Button>
               
             </div>

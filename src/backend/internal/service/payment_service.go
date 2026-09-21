@@ -5,18 +5,20 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 	"unihub-workshop/internal/circuitbreaker"
 	"unihub-workshop/internal/crypto"
 	"unihub-workshop/internal/model"
 	"unihub-workshop/internal/queue"
-	"unihub-workshop/internal/ratelimiter"
 	"unihub-workshop/internal/repository"
+	"unihub-workshop/internal/seatlimiter"
+
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type PaymentService struct {
@@ -27,7 +29,7 @@ type PaymentService struct {
 	crypto        *crypto.RSAProvider
 	publisher     *queue.Publisher
 	redisClient   *redis.Client
-	seatLimiter   *ratelimiter.SeatLimiter
+	seatLimiter   *seatlimiter.SeatLimiter
 	breaker       *circuitbreaker.CircuitBreaker
 	webhookSecret string
 	gatewayURL    string
@@ -41,7 +43,7 @@ func NewPaymentService(
 	cryptoProvider *crypto.RSAProvider,
 	publisher *queue.Publisher,
 	redisClient *redis.Client,
-	seatLimiter *ratelimiter.SeatLimiter,
+	seatLimiter *seatlimiter.SeatLimiter,
 	webhookSecret, gatewayURL string,
 ) *PaymentService {
 	return &PaymentService{
@@ -59,6 +61,31 @@ func NewPaymentService(
 	}
 }
 
+func (s *PaymentService) getCachedWorkshop(ctx context.Context, workshopID string) (*model.Workshop, error) {
+	cacheKey := fmt.Sprintf("workshop:meta:%s", workshopID)
+	if s.redisClient != nil {
+		if val, err := s.redisClient.Get(ctx, cacheKey).Result(); err == nil && val != "" {
+			var w model.Workshop
+			if err := json.Unmarshal([]byte(val), &w); err == nil {
+				return &w, nil
+			}
+		}
+	}
+
+	workshop, err := s.workshopRepo.FindByID(ctx, workshopID)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.redisClient != nil {
+		if bytes, err := json.Marshal(workshop); err == nil {
+			_ = s.redisClient.Set(ctx, cacheKey, bytes, 10*time.Minute).Err()
+		}
+	}
+
+	return workshop, nil
+}
+
 // InitiatePayment creates a payment record and returns a mock checkout URL
 func (s *PaymentService) InitiatePayment(ctx context.Context, registrationID string) (*model.Payment, string, error) {
 	reg, err := s.regRepo.FindByID(ctx, registrationID)
@@ -70,7 +97,7 @@ func (s *PaymentService) InitiatePayment(ctx context.Context, registrationID str
 		return nil, "", fmt.Errorf("registration is not in PENDING_PAYMENT status")
 	}
 
-	workshop, err := s.workshopRepo.FindByID(ctx, reg.WorkshopID)
+	workshop, err := s.getCachedWorkshop(ctx, reg.WorkshopID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -172,7 +199,7 @@ func (s *PaymentService) HandleWebhook(ctx context.Context, req *model.PaymentWe
 
 		// Publish notification
 		if reg != nil {
-			workshop, _ := s.workshopRepo.FindByID(ctx, reg.WorkshopID)
+			workshop, _ := s.getCachedWorkshop(ctx, reg.WorkshopID)
 			title := ""
 			if workshop != nil {
 				title = workshop.Title
@@ -232,7 +259,7 @@ func (s *PaymentService) CleanupExpiredPayments(ctx context.Context) {
 		if err := s.workshopRepo.IncrementSeat(ctx, reg.WorkshopID); err != nil {
 			log.Printf("[PAYMENT_CLEANUP] Failed to restore seat in DB for workshop %s: %v", reg.WorkshopID, err)
 		}
-		
+
 		// 4. Cập nhật lại Cache Redis (Quan trọng để tránh lệch số lượng ghế)
 		if s.seatLimiter != nil {
 			if err := s.seatLimiter.ReleaseSeat(ctx, reg.WorkshopID); err != nil {

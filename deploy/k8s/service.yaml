@@ -12,13 +12,14 @@ metadata:
     app.kubernetes.io/name: unihub
     app.kubernetes.io/component: api
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: unihub-api
   ports:
   - name: http
     port: 80
     targetPort: 8080
+    nodePort: 30080
     protocol: TCP
 
 ---
