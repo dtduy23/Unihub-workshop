@@ -1,16 +1,18 @@
-package ratelimiter
+package seatlimiter
 
 import (
 	"context"
 	_ "embed"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"strconv"
+
+	"github.com/redis/go-redis/v9"
 )
 
 //go:embed seat_cache.lua
 var seatCacheScript string
 
+// SeatLimiter manages Redis-based seat reservation to shield database from overselling
 type SeatLimiter struct {
 	client *redis.Client
 	script *redis.Script
@@ -33,7 +35,7 @@ func (sl *SeatLimiter) PrepareCache(ctx context.Context, workshopID string, init
 // TryAcquireSeat attempts to decrement the seat count in Redis
 func (sl *SeatLimiter) TryAcquireSeat(ctx context.Context, workshopID string) (bool, error) {
 	key := fmt.Sprintf("workshop:seats:%s", workshopID)
-	
+
 	result, err := sl.script.Run(ctx, sl.client, []string{key}, 1).Int64()
 	if err != nil {
 		return false, fmt.Errorf("redis seat script error: %w", err)
@@ -41,10 +43,9 @@ func (sl *SeatLimiter) TryAcquireSeat(ctx context.Context, workshopID string) (b
 
 	// -1: Key not found, -2: Out of seats
 	if result == -1 {
-		// This should not happen if PrepareCache was called, but let's handle it
 		return false, fmt.Errorf("seat cache not initialized for workshop %s", workshopID)
 	}
-	
+
 	if result == -2 {
 		return false, nil // Valid result: no seats left
 	}

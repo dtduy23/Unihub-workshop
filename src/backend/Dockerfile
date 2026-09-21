@@ -32,9 +32,6 @@ WORKDIR /app
 # Copy only the binary (migrations are embedded via go:embed)
 COPY --from=builder /app/server .
 
-# Copy static data needed at runtime
-COPY data/ data/
-
 # Set ownership to non-root user
 RUN chown -R appuser:appgroup /app
 

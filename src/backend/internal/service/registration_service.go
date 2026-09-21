@@ -4,18 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 	"unihub-workshop/internal/crypto"
 	"unihub-workshop/internal/model"
 	"unihub-workshop/internal/queue"
-	"unihub-workshop/internal/ratelimiter"
 	"unihub-workshop/internal/repository"
+	"unihub-workshop/internal/seatlimiter"
+	"unihub-workshop/internal/waitingroom"
+
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type RegistrationService struct {
@@ -24,13 +28,13 @@ type RegistrationService struct {
 	userRepo       *repository.UserRepo
 	paymentService *PaymentService
 	crypto         *crypto.RSAProvider
-	publisher    *queue.Publisher
-	redis        *redis.Client
-	waitingRoom  *ratelimiter.WaitingRoom
-	seatLimiter  *ratelimiter.SeatLimiter
-	gatewayURL   string
-	mu           sync.RWMutex
-	statuses     map[string]*model.RegistrationStatusResponse
+	publisher      *queue.Publisher
+	redis          *redis.Client
+	waitingRoom    *waitingroom.WaitingRoom
+	seatLimiter    *seatlimiter.SeatLimiter
+	gatewayURL     string
+	mu             sync.RWMutex
+	statuses       map[string]*model.RegistrationStatusResponse
 }
 
 func NewRegistrationService(
@@ -41,8 +45,8 @@ func NewRegistrationService(
 	cryptoProvider *crypto.RSAProvider,
 	publisher *queue.Publisher,
 	redisClient *redis.Client,
-	waitingRoom *ratelimiter.WaitingRoom,
-	seatLimiter *ratelimiter.SeatLimiter,
+	waitingRoom *waitingroom.WaitingRoom,
+	seatLimiter *seatlimiter.SeatLimiter,
 ) *RegistrationService {
 	return &RegistrationService{
 		regRepo:        regRepo,
@@ -58,17 +62,57 @@ func NewRegistrationService(
 	}
 }
 
+// GetCachedWorkshop retrieves workshop metadata from Redis if available,
+// or falls back to DB and populates the Redis cache with a TTL of 10 minutes.
+func (s *RegistrationService) GetCachedWorkshop(ctx context.Context, workshopID string) (*model.Workshop, error) {
+	cacheKey := fmt.Sprintf("workshop:meta:%s", workshopID)
+
+	// 1. Check Redis cache first (sub-millisecond in-memory read)
+	if val, err := s.redis.Get(ctx, cacheKey).Result(); err == nil && val != "" {
+		var w model.Workshop
+		if err := json.Unmarshal([]byte(val), &w); err == nil {
+			return &w, nil
+		}
+	}
+
+	// 2. Cache miss: Fetch from Database (PostgreSQL)
+	workshop, err := s.workshopRepo.FindByID(ctx, workshopID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Cache into Redis for 10 minutes to protect DB from thundering herd
+	if bytes, err := json.Marshal(workshop); err == nil {
+		_ = s.redis.Set(ctx, cacheKey, bytes, 10*time.Minute).Err()
+	}
+
+	return workshop, nil
+}
+
 // CheckWaitingRoom checks a user's status in the virtual waiting room.
 // It also performs "lazy promotion" — each poll triggers a batch of queued users
 // to be promoted into the active set, keeping the queue flowing.
-func (s *RegistrationService) CheckWaitingRoom(ctx context.Context, workshopID, userID string) (*ratelimiter.WaitingRoomResult, error) {
+func (s *RegistrationService) CheckWaitingRoom(ctx context.Context, workshopID, userID string) (*waitingroom.WaitingRoomResult, error) {
+	workshop, err := s.GetCachedWorkshop(ctx, workshopID)
+	if err != nil {
+		return nil, fmt.Errorf("workshop not found: %w", err)
+	}
+
+	now := time.Now()
+	if !workshop.RegistrationStartTime.IsZero() && now.Before(workshop.RegistrationStartTime) {
+		return nil, fmt.Errorf("cổng đăng ký chưa mở (thời gian mở: %s)", workshop.RegistrationStartTime.Local().Format("15:04:05 02/01/2006"))
+	}
+	if !workshop.RegistrationEndTime.IsZero() && now.After(workshop.RegistrationEndTime) {
+		return nil, fmt.Errorf("thời hạn đăng ký chuyên đề này đã kết thúc")
+	}
+
 	// Lazy promotion: promote waiting users before checking this user's status.
 	// This ensures the queue keeps moving even without a dedicated background worker.
 	if _, err := s.waitingRoom.PromoteNext(ctx, workshopID); err != nil {
 		log.Printf("[WAITING_ROOM] Promotion error (non-fatal): %v", err)
 	}
 
-	return s.waitingRoom.Enter(ctx, workshopID, userID)
+	return s.waitingRoom.Enter(ctx, workshopID, userID, workshop.RegistrationStartTime)
 }
 
 // EnqueueRegistration pushes registration request to RabbitMQ and returns a correlation ID
@@ -100,18 +144,28 @@ func (s *RegistrationService) EnqueueRegistration(ctx context.Context, userID, w
 	// ==========================================
 	// Before enqueuing, we try to decrement the seat count in Redis.
 	// This acts as a high-performance shield for the database.
-	
+
 	// Pre-warm cache if needed (Get workshop to know initial seats)
-	workshop, err := s.workshopRepo.FindByID(ctx, workshopID)
+	workshop, err := s.GetCachedWorkshop(ctx, workshopID)
 	if err != nil {
 		return "", fmt.Errorf("workshop not found: %w", err)
+	}
+
+	// CHECK: Thời gian mở và đóng cổng đăng ký (Chống cURL / Bot lén lút)
+	now := time.Now()
+	if !workshop.RegistrationStartTime.IsZero() && now.Before(workshop.RegistrationStartTime) {
+		return "", fmt.Errorf("cổng đăng ký chưa mở (thời gian mở: %s)",
+			workshop.RegistrationStartTime.Local().Format("15:04:05 02/01/2006"))
+	}
+	if !workshop.RegistrationEndTime.IsZero() && now.After(workshop.RegistrationEndTime) {
+		return "", fmt.Errorf("thời hạn đăng ký chuyên đề này đã kết thúc")
 	}
 
 	// CHECK: Nếu là workshop có phí mà cổng thanh toán đang bảo trì -> Chặn luôn
 	if workshop.Price > 0 && s.paymentService.IsGatewayDown(ctx) {
 		return "", fmt.Errorf("cổng thanh toán đang bảo trì, vui lòng quay lại sau")
 	}
-	
+
 	if err := s.seatLimiter.PrepareCache(ctx, workshopID, workshop.AvailableSeats); err != nil {
 		return "", fmt.Errorf("failed to prepare seat cache: %w", err)
 	}
@@ -128,7 +182,7 @@ func (s *RegistrationService) EnqueueRegistration(ctx context.Context, userID, w
 	if err := s.publisher.Publish(ctx, queue.RegistrationQueue, msg); err != nil {
 		// Rollback Redis seat if publishing fails
 		_ = s.seatLimiter.ReleaseSeat(ctx, workshopID)
-		
+
 		s.SetStatus(correlationID, &model.RegistrationStatusResponse{
 			CorrelationID: correlationID,
 			Status:        model.RegFailed,
@@ -138,7 +192,7 @@ func (s *RegistrationService) EnqueueRegistration(ctx context.Context, userID, w
 	}
 
 	log.Printf("[REGISTRATION] Enqueued: correlation=%s user=%s workshop=%s", correlationID, userID, workshopID)
-	
+
 	// Khởi tạo trạng thái PROCESSING ngay khi Enqueue thành công để tránh lỗi 404 ở Client
 	s.SetStatus(correlationID, &model.RegistrationStatusResponse{
 		CorrelationID: correlationID,
@@ -154,7 +208,7 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 	log.Printf("[WORKER] Processing registration: correlation=%s", msg.CorrelationID)
 
 	// Get workshop info to determine if it's free or paid
-	workshop, err := s.workshopRepo.FindByID(ctx, msg.WorkshopID)
+	workshop, err := s.GetCachedWorkshop(ctx, msg.WorkshopID)
 	if err != nil {
 		s.SetStatus(msg.CorrelationID, &model.RegistrationStatusResponse{
 			CorrelationID: msg.CorrelationID,
@@ -177,7 +231,7 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 		// DB says no seats! (Inconsistency with Redis)
 		// We should release the tentative seat we took in Redis
 		_ = s.seatLimiter.ReleaseSeat(ctx, msg.WorkshopID)
-		
+
 		s.SetStatus(msg.CorrelationID, &model.RegistrationStatusResponse{
 			CorrelationID: msg.CorrelationID,
 			Status:        model.RegRejected,
@@ -202,7 +256,7 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 
 	if err := s.regRepo.Create(ctx, tx, reg); err != nil {
 		tx.Rollback(ctx)
-		
+
 		// Xử lý lỗi trùng lặp (Idempotency hoặc do UPSERT bị loại trừ)
 		if strings.Contains(err.Error(), "uq_user_workshop") || strings.Contains(err.Error(), "no rows in result set") {
 			log.Printf("[WORKER] Duplicate registration attempt: user=%s workshop=%s", msg.UserID, msg.WorkshopID)
@@ -360,7 +414,7 @@ func (s *RegistrationService) CancelRegistration(ctx context.Context, userID, re
 	if err != nil {
 		log.Printf("[ERROR] Failed to release seat in Redis for workshop %s: %v", reg.WorkshopID, err)
 	}
-	
+
 	log.Printf("[REGISTRATION] Cancelled: registration=%s user=%s workshop=%s", registrationID, userID, reg.WorkshopID)
 
 	return nil
@@ -378,7 +432,7 @@ func (s *RegistrationService) ExportCSV(ctx context.Context, workshopID string, 
 	buf.Write([]byte("\xEF\xBB\xBF"))
 
 	cw := csv.NewWriter(&buf)
-	
+
 	// Headers
 	_ = cw.Write([]string{"STT", "Mã sinh viên", "Họ và tên", "Email", "Trạng thái", "Đã điểm danh", "Ngày đăng ký"})
 
@@ -416,7 +470,7 @@ func (s *RegistrationService) ExportCSV(ctx context.Context, workshopID string, 
 		stt++
 	}
 	cw.Flush()
-	
+
 	if err := cw.Error(); err != nil {
 		return nil, fmt.Errorf("error writing csv: %w", err)
 	}

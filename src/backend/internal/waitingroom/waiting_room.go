@@ -1,10 +1,11 @@
-package ratelimiter
+package waitingroom
 
 import (
 	"context"
 	_ "embed"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -16,51 +17,18 @@ var waitingRoomScript string
 //go:embed waiting_room_promote.lua
 var waitingRoomPromoteScript string
 
-// QueueStatus represents the result of a waiting room check
-type QueueStatus int
-
-const (
-	QueueGranted       QueueStatus = 1 // User can proceed immediately
-	QueueWaiting       QueueStatus = 2 // User has been placed in queue
-	QueueAlreadyActive QueueStatus = 3 // User already has an active token
-	QueueAlreadyQueued QueueStatus = 0 // User is already in queue
-)
-
-func (s QueueStatus) String() string {
-	switch s {
-	case QueueGranted:
-		return "GRANTED"
-	case QueueWaiting:
-		return "WAITING"
-	case QueueAlreadyActive:
-		return "ALREADY_ACTIVE"
-	case QueueAlreadyQueued:
-		return "ALREADY_QUEUED"
-	default:
-		return "UNKNOWN"
-	}
-}
-
-// WaitingRoomResult holds the response from the waiting room
-type WaitingRoomResult struct {
-	Status       QueueStatus `json:"status"`
-	StatusText   string      `json:"status_text"`
-	Position     int         `json:"position,omitempty"`      // Queue position (1-indexed), 0 if granted
-	TotalInQueue int         `json:"total_in_queue,omitempty"`
-	RetryAfter   int         `json:"retry_after,omitempty"`   // Seconds until client should poll again
-	AccessTTL    int         `json:"access_ttl,omitempty"`    // Seconds the access token is valid
-	EstimatedWait int        `json:"estimated_wait,omitempty"` // Estimated seconds to wait
-}
-
 // WaitingRoom implements a virtual queue using Redis Sorted Sets
 type WaitingRoom struct {
 	client        *redis.Client
 	enterScript   *redis.Script
 	promoteScript *redis.Script
-	maxActive     int           // Max concurrent users allowed through
-	tokenTTL      int           // Seconds an access token is valid
-	queueTTL      int           // Seconds before queue auto-expires
-	throughput    int           // Users processed per promotion cycle
+	maxActive     int // Max concurrent users allowed through
+	tokenTTL      int // Seconds an access token is valid
+	queueTTL      int // Seconds before queue auto-expires
+	heartbeatTTL  int // Seconds before a waiting user is considered abandoned (60s)
+	weight        int // Time penalty multiplier (e.g. 100)
+	maxRandom     int // Max random score offset (e.g. 3000 -> 30s fair lottery)
+	throughput    int // Users processed per promotion cycle
 }
 
 // NewWaitingRoom creates a new virtual waiting room
@@ -75,20 +43,51 @@ func NewWaitingRoom(client *redis.Client, maxActive, tokenTTL, queueTTL int) *Wa
 		maxActive:     maxActive,
 		tokenTTL:      tokenTTL,
 		queueTTL:      queueTTL,
-		throughput:     maxActive, // promote up to maxActive per cycle
+		heartbeatTTL:  60,   // 60 seconds expire as requested by user
+		weight:        100,  // penalty multiplier per second
+		maxRandom:     3000, // random offset up to 30s
+		throughput:    maxActive,
+	}
+}
+
+// SetAlgorithmParams allows customizing heartbeat TTL, weight and max random window
+func (wr *WaitingRoom) SetAlgorithmParams(heartbeatTTL, weight, maxRandom int) {
+	if heartbeatTTL > 0 {
+		wr.heartbeatTTL = heartbeatTTL
+	}
+	if weight > 0 {
+		wr.weight = weight
+	}
+	if maxRandom > 0 {
+		wr.maxRandom = maxRandom
 	}
 }
 
 // Enter attempts to enter the waiting room for a specific workshop
+// Priority score formula: (now - openTime) * weight + randomVal
 // Returns the user's queue status and position
-func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string) (*WaitingRoomResult, error) {
+func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string, openTime time.Time) (*WaitingRoomResult, error) {
 	queueKey := fmt.Sprintf("waitingroom:%s", workshopID)
 	activeKey := fmt.Sprintf("waitingroom:active:%s", workshopID)
+	heartbeatKey := fmt.Sprintf("waitingroom:heartbeat:%s", workshopID)
+
 	now := float64(time.Now().UnixMilli()) / 1000.0
 
+	var openTimeUnix float64
+	if !openTime.IsZero() {
+		openTimeUnix = float64(openTime.Unix())
+	} else {
+		openTimeUnix = now
+	}
+
+	randomVal := 0
+	if wr.maxRandom > 0 {
+		randomVal = rand.IntN(wr.maxRandom)
+	}
+
 	result, err := wr.enterScript.Run(ctx, wr.client,
-		[]string{queueKey, activeKey},
-		userID, now, wr.maxActive, wr.tokenTTL, wr.queueTTL,
+		[]string{queueKey, activeKey, heartbeatKey},
+		userID, now, openTimeUnix, wr.maxActive, wr.tokenTTL, wr.heartbeatTTL, wr.weight, randomVal,
 	).Int64Slice()
 
 	if err != nil {
@@ -117,9 +116,10 @@ func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string) (*W
 
 	case QueueWaiting:
 		res.Position = secondVal
-		res.RetryAfter = 5 // Poll every 5 seconds
-		// Estimate wait: position * (tokenTTL / maxActive)
-		res.EstimatedWait = secondVal * (wr.tokenTTL / wr.maxActive)
+		res.RetryAfter = 5 // Poll every 5 seconds (also acts as heartbeat)
+		if wr.maxActive > 0 {
+			res.EstimatedWait = secondVal * (wr.tokenTTL / wr.maxActive)
+		}
 		if res.EstimatedWait < 5 {
 			res.EstimatedWait = 5
 		}
@@ -129,13 +129,15 @@ func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string) (*W
 	case QueueAlreadyActive:
 		res.AccessTTL = secondVal
 		res.RetryAfter = 0
-		log.Printf("[WAITING_ROOM] %s already has active token for workshop %s", userID, workshopID)
+		log.Printf("[WAITING_ROOM] %s already has active token for workshop %s (remaining: %ds)", userID, workshopID, secondVal)
 
 	case QueueAlreadyQueued:
 		res.Position = secondVal
 		res.TotalInQueue = totalInQueue
 		res.RetryAfter = 5
-		res.EstimatedWait = secondVal * (wr.tokenTTL / wr.maxActive)
+		if wr.maxActive > 0 {
+			res.EstimatedWait = secondVal * (wr.tokenTTL / wr.maxActive)
+		}
 		if res.EstimatedWait < 5 {
 			res.EstimatedWait = 5
 		}
@@ -149,24 +151,36 @@ func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string) (*W
 // HasAccess checks if a user currently has an active access token for a workshop
 func (wr *WaitingRoom) HasAccess(ctx context.Context, workshopID, userID string) (bool, error) {
 	activeKey := fmt.Sprintf("waitingroom:active:%s", workshopID)
-	return wr.client.SIsMember(ctx, activeKey, userID).Result()
+	now := float64(time.Now().UnixMilli()) / 1000.0
+
+	score, err := wr.client.ZScore(ctx, activeKey, userID).Result()
+	if err == redis.Nil {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return score > now, nil
 }
 
 // ReleaseAccess removes a user from the active set (called after successful registration)
 func (wr *WaitingRoom) ReleaseAccess(ctx context.Context, workshopID, userID string) error {
 	activeKey := fmt.Sprintf("waitingroom:active:%s", workshopID)
-	return wr.client.SRem(ctx, activeKey, userID).Err()
+	return wr.client.ZRem(ctx, activeKey, userID).Err()
 }
 
 // PromoteNext moves the next batch of users from the queue to the active set
-// Should be called periodically by a background worker
+// Should be called periodically by a background worker or lazily on poll
 func (wr *WaitingRoom) PromoteNext(ctx context.Context, workshopID string) (int, error) {
 	queueKey := fmt.Sprintf("waitingroom:%s", workshopID)
 	activeKey := fmt.Sprintf("waitingroom:active:%s", workshopID)
+	heartbeatKey := fmt.Sprintf("waitingroom:heartbeat:%s", workshopID)
+
+	now := float64(time.Now().UnixMilli()) / 1000.0
 
 	promoted, err := wr.promoteScript.Run(ctx, wr.client,
-		[]string{queueKey, activeKey},
-		wr.maxActive, wr.tokenTTL,
+		[]string{queueKey, activeKey, heartbeatKey},
+		wr.maxActive, wr.tokenTTL, now,
 	).Int64()
 
 	if err != nil {
@@ -189,7 +203,8 @@ func (wr *WaitingRoom) GetQueueLength(ctx context.Context, workshopID string) (i
 // GetActiveCount returns the number of users currently with active access
 func (wr *WaitingRoom) GetActiveCount(ctx context.Context, workshopID string) (int64, error) {
 	activeKey := fmt.Sprintf("waitingroom:active:%s", workshopID)
-	return wr.client.SCard(ctx, activeKey).Result()
+	now := float64(time.Now().UnixMilli()) / 1000.0
+	return wr.client.ZCount(ctx, activeKey, fmt.Sprintf("%f", now), "+inf").Result()
 }
 
 // StartPromotionWorker runs a background goroutine that periodically promotes

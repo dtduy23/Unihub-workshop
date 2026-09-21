@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/name: unihub
     app.kubernetes.io/component: worker
 spec:
-  replicas: 2  # Demo localhost: 2 worker replicas (1 CPU each)
+  replicas: 1  # Adjusted for local Minikube demo
   selector:
     matchLabels:
       app: unihub-worker
@@ -27,8 +27,8 @@ spec:
       serviceAccountName: unihub-worker
       containers:
       - name: worker
-        image: asia-southeast1-docker.pkg.dev/test-projectproject/unihub-docker/unihub-backend:latest
-        imagePullPolicy: Always
+        image: unihub-backend:localhost
+        imagePullPolicy: IfNotPresent
 
         env:
         - name: APP_MODE
@@ -42,8 +42,8 @@ spec:
 
         resources:
           requests:
-            cpu: "1"        # 1 CPU per pod (Demo localhost 16 CPUs)
-            memory: "256Mi"
+            cpu: "100m"     # 0.1 CPU per pod
+            memory: "128Mi"
           limits:
-            cpu: "1"        # 1 CPU per pod
+            cpu: "500m"     # 0.5 CPU limit per pod
             memory: "512Mi"

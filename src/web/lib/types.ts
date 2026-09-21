@@ -52,6 +52,8 @@ export type Workshop = {
   room: string
   startTime: string
   endTime: string
+  registrationStartTime?: string
+  registrationEndTime?: string
   capacity: number
   availableSeats: number
   price: number

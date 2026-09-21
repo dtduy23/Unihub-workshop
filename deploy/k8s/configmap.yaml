@@ -13,22 +13,25 @@ metadata:
     app.kubernetes.io/name: unihub
 data:
   # --- Database ---
-  DB_HOST: "localhost"  # Localhost demo: postgres on 5433 or k8s postgres
+  DB_HOST: "postgres"  # In-cluster service name
   DB_PORT: "5432"
   DB_NAME: "unihub_workshop"
   DB_USER: "unihub"
   DB_SSLMODE: "disable"
 
   # --- Redis ---
-  REDIS_ADDR: "localhost:6379"  # Localhost demo
+  REDIS_ADDR: "redis:6379"  # In-cluster service name
   REDIS_PASSWORD: ""
+
+  # --- RabbitMQ ---
+  RABBITMQ_URL: "amqp://unihub:unihub-rmq-pass@rabbitmq:5672/"
 
   # --- Server ---
   SERVER_PORT: "8080"
   CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
 
   # --- SMTP ---
-  SMTP_HOST: "localhost"
+  SMTP_HOST: "mailhog"
   SMTP_PORT: "1025"
   SMTP_FROM: "noreply@unihub.edu.vn"
 
@@ -50,7 +53,7 @@ data:
   RUN_SEED: "true"
 
   # --- Payment ---
-  PAYMENT_GATEWAY_URL: "http://localhost:8080/mock/payment"
+  PAYMENT_GATEWAY_URL: "http://unihub-api-service/mock/payment"
 
 ---
 
@@ -64,4 +67,4 @@ metadata:
     app.kubernetes.io/name: unihub
     app.kubernetes.io/component: web
 data:
-  NEXT_PUBLIC_API_URL: "http://localhost:8080"
+  NEXT_PUBLIC_API_URL: "http://unihub-api-service"

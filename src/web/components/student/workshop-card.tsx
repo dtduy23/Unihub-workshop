@@ -29,6 +29,8 @@ export interface Workshop {
   roomLayoutUrl?: string
   isRegistered?: boolean
   status: "PUBLISHED" | "CLOSED" | "DELETED"
+  registrationStartTime?: string
+  registrationEndTime?: string
 }
 
 interface WorkshopCardProps {
@@ -57,6 +59,19 @@ export function WorkshopCard({ workshop }: WorkshopCardProps) {
     window.addEventListener(eventName, handleSuccess)
     return () => window.removeEventListener(eventName, handleSuccess)
   }, [workshop.id])
+
+  const [currentTime, setCurrentTime] = useState<number>(() => Date.now())
+
+  useEffect(() => {
+    // Cập nhật đồng hồ đếm ngược mỗi giây nếu có cấu hình thời gian mở/đóng
+    if (!workshop.registrationStartTime && !workshop.registrationEndTime) return
+
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now())
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [workshop.registrationStartTime, workshop.registrationEndTime])
 
   const filledPercentage = Math.round(
     ((workshop.capacity - workshop.availableSeats) / workshop.capacity) * 100
@@ -89,6 +104,48 @@ export function WorkshopCard({ workshop }: WorkshopCardProps) {
         disabled: true
       }
     }
+
+    // 1. Kiểm tra chưa đến giờ mở cổng đăng ký -> Hiện countdown, khóa nút
+    if (workshop.registrationStartTime) {
+      const startTime = new Date(workshop.registrationStartTime).getTime()
+      if (currentTime < startTime) {
+        const diff = Math.max(0, Math.floor((startTime - currentTime) / 1000))
+        const days = Math.floor(diff / 86400)
+        const hours = Math.floor((diff % 86400) / 3600)
+        const minutes = Math.floor((diff % 3600) / 60)
+        const seconds = diff % 60
+
+        let countdown = ""
+        if (days > 0) {
+          countdown = `${days}n ${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+        } else if (hours > 0) {
+          countdown = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+        } else {
+          countdown = `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+        }
+
+        return {
+          label: `Mở sau ${countdown}`,
+          variant: "secondary" as const,
+          className: "bg-slate-100 text-slate-500 hover:bg-slate-100 cursor-not-allowed border border-slate-200 font-mono tracking-tight",
+          disabled: true
+        }
+      }
+    }
+
+    // 2. Kiểm tra đã quá hạn đăng ký
+    if (workshop.registrationEndTime) {
+      const endTime = new Date(workshop.registrationEndTime).getTime()
+      if (currentTime > endTime) {
+        return {
+          label: "Hết hạn đăng ký",
+          variant: "outline" as const,
+          className: "border-slate-300 text-slate-400 bg-slate-50",
+          disabled: true
+        }
+      }
+    }
+
     if (isFull) {
       return {
         label: "Đã hết chỗ",

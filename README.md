@@ -207,7 +207,7 @@ unihub-workshop/
 
 ```bash
 cd src/backend
-docker-compose up -d
+docker compose up -d
 ```
 
 Lệnh này sẽ khởi động:

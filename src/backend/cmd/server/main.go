@@ -25,7 +25,9 @@ import (
 	"unihub-workshop/internal/queue"
 	"unihub-workshop/internal/ratelimiter"
 	"unihub-workshop/internal/repository"
+	"unihub-workshop/internal/seatlimiter"
 	"unihub-workshop/internal/service"
+	"unihub-workshop/internal/waitingroom"
 )
 
 func main() {
@@ -80,10 +82,10 @@ func main() {
 	importRepo := repository.NewImportRepo(pgPool)
 
 	// Initialize waiting room (max 100 concurrent registrations, token valid for 5 min, queue valid for 1 hour)
-	waitingRoom := ratelimiter.NewWaitingRoom(redisClient, 100, 300, 3600)
+	waitingRoom := waitingroom.NewWaitingRoom(redisClient, 100, 300, 3600)
 
 	// Initialize seat limiter (Double-check pattern)
-	seatLimiter := ratelimiter.NewSeatLimiter(redisClient)
+	seatLimiter := seatlimiter.NewSeatLimiter(redisClient)
 
 	// Initialize RSA Crypto Provider
 	var rsaProvider *crypto.RSAProvider
@@ -101,7 +103,7 @@ func main() {
 
 	// Initialize services
 	authService := service.NewAuthService(userRepo, cfg.AuthSecret, publisher)
-	workshopService := service.NewWorkshopService(workshopRepo)
+	workshopService := service.NewWorkshopService(workshopRepo, redisClient)
 	paymentService := service.NewPaymentService(paymentRepo, regRepo, workshopRepo, userRepo, rsaProvider, publisher, redisClient, seatLimiter, cfg.PaymentWebhookSecret, cfg.PaymentGatewayURL)
 	regService := service.NewRegistrationService(regRepo, workshopRepo, userRepo, paymentService, rsaProvider, publisher, redisClient, waitingRoom, seatLimiter)
 	checkinService := service.NewCheckinService(regRepo)
@@ -408,7 +410,7 @@ func startBatchImportScheduler(ctx context.Context, batchService *service.BatchI
 			if now.After(next) {
 				next = next.Add(24 * time.Hour)
 			}
-			
+
 			duration := next.Sub(now)
 			log.Printf("[WORKER] Next batch import scheduled in %v (at %v)", duration.Round(time.Second), next.Format("15:04:05"))
 

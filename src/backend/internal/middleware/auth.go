@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"unihub-workshop/internal/model"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type contextKey string
@@ -98,7 +99,7 @@ func GenerateJWT(secret, userID string, role model.Role) (string, error) {
 	claims := jwt.MapClaims{
 		"sub":  userID,
 		"role": string(role),
-		"exp":  time.Now().Add(1 * time.Hour).Unix(),
+		"exp":  time.Now().Add(24 * time.Hour).Unix(),
 		"iat":  time.Now().Unix(),
 	}
 

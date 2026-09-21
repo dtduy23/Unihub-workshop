@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/name: unihub
     app.kubernetes.io/component: api
 spec:
-  replicas: 12  # Localhost 16 CPUs demo: 12 API replicas + 2 Web + 2 Worker = 16 CPUs (1 CPU/replica)
+  replicas: 2  # Adjusted for local Minikube demo
   selector:
     matchLabels:
       app: unihub-api
@@ -27,8 +27,8 @@ spec:
       serviceAccountName: unihub-api
       containers:
       - name: api
-        image: asia-southeast1-docker.pkg.dev/test-projectproject/unihub-docker/unihub-backend:latest
-        imagePullPolicy: Always
+        image: unihub-backend:localhost
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
           protocol: TCP
@@ -65,11 +65,11 @@ spec:
 
         resources:
           requests:
-            cpu: "1"        # 1 CPU per pod (Demo localhost 16 CPUs)
-            memory: "512Mi"
+            cpu: "100m"     # 0.1 CPU per pod
+            memory: "128Mi"
           limits:
-            cpu: "1"        # 1 CPU per pod
-            memory: "1Gi"
+            cpu: "500m"     # 0.5 CPU limit per pod
+            memory: "512Mi"
 
       # Ưu tiên phân bổ đều, nhưng không block nếu thiếu node
       topologySpreadConstraints:

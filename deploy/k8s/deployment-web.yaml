@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/name: unihub
     app.kubernetes.io/component: web
 spec:
-  replicas: 2
+  replicas: 1  # Adjusted for local Minikube demo
   selector:
     matchLabels:
       app: unihub-web
@@ -24,8 +24,8 @@ spec:
     spec:
       containers:
       - name: web
-        image: asia-southeast1-docker.pkg.dev/test-projectproject/unihub-docker/unihub-web:latest
-        imagePullPolicy: Always
+        image: unihub-web:localhost
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
           protocol: TCP
@@ -55,8 +55,8 @@ spec:
 
         resources:
           requests:
-            cpu: "1"        # 1 CPU per pod (Demo localhost 16 CPUs)
-            memory: "256Mi"
+            cpu: "100m"     # 0.1 CPU per pod
+            memory: "128Mi"
           limits:
-            cpu: "1"        # 1 CPU per pod
+            cpu: "500m"     # 0.5 CPU limit per pod
             memory: "512Mi"
