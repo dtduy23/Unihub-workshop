@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/ledongthuc/pdf"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -33,9 +35,25 @@ func NewAISummaryService(workshopRepo *repository.WorkshopRepo, apiKey, modelNam
 	if modelName == "" {
 		modelName = "gemini-2.0-flash"
 	}
+
+	breaker := circuitbreaker.NewCircuitBreaker("ai-service", 0.5, 30*time.Second, 60*time.Second)
+	breaker.SetIgnoredError(func(err error) bool {
+		if errors.Is(err, context.Canceled) {
+			return true
+		}
+		var gErr *googleapi.Error
+		if errors.As(err, &gErr) {
+			// Client errors (4xx) except 429 (Rate Limit) do not trip the circuit breaker
+			if gErr.Code >= 400 && gErr.Code < 500 && gErr.Code != 429 {
+				return true
+			}
+		}
+		return false
+	})
+
 	return &AISummaryService{
 		workshopRepo: workshopRepo,
-		breaker:      circuitbreaker.NewCircuitBreaker("ai-service", 0.5, 30*time.Second, 60*time.Second),
+		breaker:      breaker,
 		apiKey:       apiKey,
 		modelName:    modelName,
 		temperature:  temperature,
