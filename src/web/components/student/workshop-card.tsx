@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
 import { WorkshopDetailDialog } from "./workshop-detail-dialog"
-import { PaymentDialog } from "./payment-dialog"
 import { useRegistration } from "@/hooks/use-registration"
 import { cn } from "@/lib/utils"
 
@@ -21,7 +20,7 @@ export interface Workshop {
   location: string
   capacity: number
   availableSeats: number
-  ticketType: "free" | "paid"
+  ticketType?: "free" | "paid"
   price?: number
   category: string
   imageUrl?: string
@@ -44,10 +43,7 @@ export function WorkshopCard({ workshop }: WorkshopCardProps) {
     isRegistering, 
     regStatus, 
     waitingPosition, 
-    handleRegister,
-    showPaymentDialog,
-    setShowPaymentDialog,
-    paymentInfo
+    handleRegister
   } = useRegistration(workshop.id)
 
   useEffect(() => {
@@ -180,16 +176,8 @@ export function WorkshopCard({ workshop }: WorkshopCardProps) {
             <Badge variant="outline" className="font-medium text-primary border-primary/20 bg-primary/5">
               {workshop.category}
             </Badge>
-            <Badge
-              className={
-                workshop.ticketType === "free"
-                  ? "bg-emerald-500 hover:bg-emerald-600 text-white"
-                  : "bg-blue-600 hover:bg-blue-700 text-white"
-              }
-            >
-              {workshop.ticketType === "free"
-                ? "Miễn phí"
-                : `${workshop.price?.toLocaleString("vi-VN")}đ`}
+            <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white">
+              Miễn phí
             </Badge>
           </div>
 
@@ -266,14 +254,6 @@ export function WorkshopCard({ workshop }: WorkshopCardProps) {
         workshop={workshop}
         open={isDetailOpen}
         onOpenChange={setIsDetailOpen}
-      />
-
-      <PaymentDialog
-        open={showPaymentDialog}
-        onOpenChange={setShowPaymentDialog}
-        amount={paymentInfo?.amount || 0}
-        paymentUrl={paymentInfo?.url || ""}
-        workshopTitle={workshop.title}
       />
     </>
   )

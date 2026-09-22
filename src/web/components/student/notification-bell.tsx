@@ -22,7 +22,6 @@ import { Badge } from "@/components/ui/badge"
 import { api, auth } from "@/lib/api-client"
 import { format } from "date-fns"
 import { vi } from "date-fns/locale"
-import { PaymentDialog } from "./payment-dialog"
 
 interface Registration {
   id: string
@@ -44,8 +43,6 @@ export function NotificationBell() {
   const [selectedTicket, setSelectedTicket] = useState<Registration | null>(null)
   const [isQRModalOpen, setIsQRModalOpen] = useState(false)
   const { notifications, loading: loadingNotifs, unreadCount } = useNotifications()
-  const [paymentInfo, setPaymentInfo] = useState<{ amount: number; url: string; title: string } | null>(null)
-  const [showPaymentDialog, setShowPaymentDialog] = useState(false)
   const [cancelingId, setCancelingId] = useState<string | null>(null)
 
   const fetchRegistrations = useCallback(async () => {
@@ -55,7 +52,7 @@ export function NotificationBell() {
       const response = await api.get<Registration[]>('/api/v1/registrations/my')
       if (response.success && response.data) {
         const validItems = response.data.filter(r => 
-          (r.status === 'SUCCESS' || r.status === 'PUBLISHED' || r.status === 'PENDING_PAYMENT')
+          (r.status === 'SUCCESS' || r.status === 'PUBLISHED')
         )
         setRegistrations(validItems)
       }
@@ -97,31 +94,6 @@ export function NotificationBell() {
   const openQR = (reg: Registration) => {
     setSelectedTicket(reg)
     setIsQRModalOpen(true)
-  }
-
-  const handlePayResume = async (reg: Registration) => {
-    try {
-      const res = await api.post<any>(`/api/v1/payments/${reg.id}`)
-      
-      if (res.success && res.data) {
-        setPaymentInfo({
-          amount: res.data.payment.amount,
-          url: res.data.checkout_url,
-          title: reg.workshopTitle
-        })
-        setShowPaymentDialog(true)
-      }
-    } catch (error: any) {
-      const errorMsg = error.message || ""
-      
-      if (errorMsg.includes("bảo trì") || errorMsg.includes("maintenance") || errorMsg.includes("outage") || errorMsg.includes("circuit breaker")) {
-        toast.error('Cổng thanh toán đang bảo trì', {
-          description: 'Hệ thống thanh toán hiện đang bảo trì để nâng cấp. Vui lòng quay lại sau ít phút.'
-        })
-      } else {
-        toast.error(errorMsg || 'Thanh toán thất bại')
-      }
-    }
   }
 
   const handleCancel = async (regId: string) => {
@@ -254,14 +226,6 @@ export function NotificationBell() {
                 <div className="flex flex-col">
                   {registrations.map((reg) => (
                     <div key={reg.id} className="p-4 hover:bg-slate-50 transition-colors group border-b last:border-0 relative overflow-hidden">
-                      {reg.status === 'PENDING_PAYMENT' && (
-                        <div className="absolute top-0 right-0">
-                          <Badge className="rounded-none rounded-bl-lg bg-amber-500 text-[8px] font-black uppercase tracking-widest px-2 py-0.5">
-                            Chờ thanh toán
-                          </Badge>
-                        </div>
-                      )}
-                      
                       <p className="font-bold text-sm text-slate-900 group-hover:text-primary transition-colors pr-10">
                         {reg.workshopTitle}
                       </p>
@@ -276,51 +240,27 @@ export function NotificationBell() {
                         </div>
                       </div>
 
-                      {reg.status === 'PENDING_PAYMENT' ? (
-                        <div className="flex gap-2 mt-4">
-                          <Button 
-                            variant="default" 
-                            size="sm" 
-                            className="flex-1 h-8 text-[10px] font-black bg-primary hover:bg-primary/90 text-white transition-all gap-1 tracking-widest shadow-md shadow-primary/20"
-                            onClick={() => handlePayResume(reg)}
-                          >
-                            <Zap className="h-3.5 w-3.5" />
-                            THANH TOÁN
-                          </Button>
-                          <Button 
-                            variant="destructive" 
-                            size="sm" 
-                            className="h-8 text-[10px] font-black transition-all gap-1 tracking-widest"
-                            disabled={cancelingId === reg.id}
-                            onClick={() => handleCancel(reg.id)}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                            {cancelingId === reg.id ? "..." : "HỦY"}
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex gap-2 mt-4">
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="flex-1 h-8 text-[10px] font-black border-primary/20 hover:bg-primary hover:text-white transition-all gap-1 tracking-widest"
-                            onClick={() => openQR(reg)}
-                          >
-                            <QrCode className="h-3.5 w-3.5" />
-                            XEM MÃ QR
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="h-8 text-[10px] font-black border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all gap-1 tracking-widest"
-                            disabled={cancelingId === reg.id}
-                            onClick={() => handleCancel(reg.id)}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                            {cancelingId === reg.id ? "..." : "HỦY"}
-                          </Button>
-                        </div>
-                      )}
+                      <div className="flex gap-2 mt-4">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1 h-8 text-[10px] font-black border-primary/20 hover:bg-primary hover:text-white transition-all gap-1 tracking-widest"
+                          onClick={() => openQR(reg)}
+                        >
+                          <QrCode className="h-3.5 w-3.5" />
+                          XEM MÃ QR
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8 text-[10px] font-black border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all gap-1 tracking-widest"
+                          disabled={cancelingId === reg.id}
+                          onClick={() => handleCancel(reg.id)}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          {cancelingId === reg.id ? "..." : "HỦY"}
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -392,14 +332,6 @@ export function NotificationBell() {
           </div>
         </DialogContent>
       </Dialog>
-      {/* Payment Dialog */}
-      <PaymentDialog 
-        open={showPaymentDialog}
-        onOpenChange={setShowPaymentDialog}
-        amount={paymentInfo?.amount || 0}
-        paymentUrl={paymentInfo?.url || ""}
-        workshopTitle={paymentInfo?.title || ""}
-      />
     </>
   )
 }

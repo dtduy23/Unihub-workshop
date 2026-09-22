@@ -22,7 +22,6 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { type Workshop } from "./workshop-card"
 import { useRegistration } from "@/hooks/use-registration"
-import { PaymentDialog } from "./payment-dialog"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
@@ -43,10 +42,7 @@ export function WorkshopDetailDialog({
     isRegistering, 
     regStatus, 
     waitingPosition, 
-    handleRegister,
-    showPaymentDialog,
-    setShowPaymentDialog,
-    paymentInfo
+    handleRegister
   } = useRegistration(workshop?.id || "")
 
   useEffect(() => {
@@ -317,7 +313,7 @@ export function WorkshopDetailDialog({
                   {workshop.isRegistered ? "Trạng thái" : (regStatus || "Thông tin vé")}
                 </p>
                 <p className="text-4xl font-black text-slate-900 tracking-tighter">
-                  {workshop.isRegistered ? "ĐÃ ĐĂNG KÝ" : waitingPosition ? `#${waitingPosition}` : (workshop.ticketType === "free" ? "MIỄN PHÍ" : `${workshop.price?.toLocaleString('vi-VN')}đ`)}
+                  {workshop.isRegistered ? "ĐÃ ĐĂNG KÝ" : waitingPosition ? `#${waitingPosition}` : "MIỄN PHÍ"}
                 </p>
               </div>
               <Button 
@@ -336,13 +332,6 @@ export function WorkshopDetailDialog({
           </div>
         </div>
       </DialogContent>
-      <PaymentDialog
-        open={showPaymentDialog}
-        onOpenChange={setShowPaymentDialog}
-        amount={paymentInfo?.amount || 0}
-        paymentUrl={paymentInfo?.url || ""}
-        workshopTitle={workshop.title}
-      />
       <style dangerouslySetInnerHTML={{ __html: customScrollbarStyles }} />
     </Dialog>
   )

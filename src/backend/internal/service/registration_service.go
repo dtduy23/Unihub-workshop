@@ -23,25 +23,24 @@ import (
 )
 
 type RegistrationService struct {
-	regRepo        *repository.RegistrationRepo
-	workshopRepo   *repository.WorkshopRepo
-	userRepo       *repository.UserRepo
-	paymentService *PaymentService
-	crypto         *crypto.RSAProvider
-	publisher      *queue.Publisher
-	redis          *redis.Client
-	waitingRoom    *waitingroom.WaitingRoom
-	seatLimiter    *seatlimiter.SeatLimiter
-	gatewayURL     string
-	mu             sync.RWMutex
-	statuses       map[string]*model.RegistrationStatusResponse
+	regRepo       *repository.RegistrationRepo
+	workshopRepo  *repository.WorkshopRepo
+	userRepo      *repository.UserRepo
+	crypto        *crypto.RSAProvider
+	publisher     *queue.Publisher
+	redis         *redis.Client
+	waitingRoom   *waitingroom.WaitingRoom
+	seatLimiter   *seatlimiter.SeatLimiter
+	mu            sync.RWMutex
+	statuses      map[string]*model.RegistrationStatusResponse
+	lastPromoteMu sync.Mutex
+	lastPromote   map[string]time.Time
 }
 
 func NewRegistrationService(
 	regRepo *repository.RegistrationRepo,
 	workshopRepo *repository.WorkshopRepo,
 	userRepo *repository.UserRepo,
-	paymentService *PaymentService,
 	cryptoProvider *crypto.RSAProvider,
 	publisher *queue.Publisher,
 	redisClient *redis.Client,
@@ -49,16 +48,16 @@ func NewRegistrationService(
 	seatLimiter *seatlimiter.SeatLimiter,
 ) *RegistrationService {
 	return &RegistrationService{
-		regRepo:        regRepo,
-		workshopRepo:   workshopRepo,
-		userRepo:       userRepo,
-		paymentService: paymentService,
-		crypto:         cryptoProvider,
-		publisher:      publisher,
-		redis:          redisClient,
-		waitingRoom:    waitingRoom,
-		seatLimiter:    seatLimiter,
-		statuses:       make(map[string]*model.RegistrationStatusResponse),
+		regRepo:      regRepo,
+		workshopRepo: workshopRepo,
+		userRepo:     userRepo,
+		crypto:       cryptoProvider,
+		publisher:    publisher,
+		redis:        redisClient,
+		waitingRoom:  waitingRoom,
+		seatLimiter:  seatLimiter,
+		statuses:     make(map[string]*model.RegistrationStatusResponse),
+		lastPromote:  make(map[string]time.Time),
 	}
 }
 
@@ -106,20 +105,43 @@ func (s *RegistrationService) CheckWaitingRoom(ctx context.Context, workshopID, 
 		return nil, fmt.Errorf("thời hạn đăng ký chuyên đề này đã kết thúc")
 	}
 
-	// Lazy promotion: promote waiting users before checking this user's status.
-	// This ensures the queue keeps moving even without a dedicated background worker.
-	if _, err := s.waitingRoom.PromoteNext(ctx, workshopID); err != nil {
-		log.Printf("[WAITING_ROOM] Promotion error (non-fatal): %v", err)
+	// Dynamic maxActive: use workshop.Capacity (fallback to 100 if <= 0)
+	maxActive := workshop.Capacity
+	if maxActive <= 0 {
+		maxActive = 100
 	}
 
-	return s.waitingRoom.Enter(ctx, workshopID, userID, workshop.RegistrationStartTime)
+	// Throttled asynchronous promotion (at most once every 250ms) to avoid saturating Redis Lua engine
+	s.maybePromote(workshopID, maxActive)
+
+	return s.waitingRoom.Enter(ctx, workshopID, userID, workshop.RegistrationStartTime, maxActive)
+}
+
+func (s *RegistrationService) maybePromote(workshopID string, maxActive int) {
+	s.lastPromoteMu.Lock()
+	last := s.lastPromote[workshopID]
+	now := time.Now()
+	if now.Sub(last) < 250*time.Millisecond {
+		s.lastPromoteMu.Unlock()
+		return
+	}
+	s.lastPromote[workshopID] = now
+	s.lastPromoteMu.Unlock()
+
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if _, err := s.waitingRoom.PromoteNext(bgCtx, workshopID, maxActive); err != nil {
+			log.Printf("[WAITING_ROOM] Promotion error (non-fatal): %v", err)
+		}
+	}()
 }
 
 // EnqueueRegistration pushes registration request to RabbitMQ and returns a correlation ID
 func (s *RegistrationService) EnqueueRegistration(ctx context.Context, userID, workshopID string) (string, error) {
 	// Check if already registered
 	existing, _ := s.regRepo.FindByUserAndWorkshop(ctx, userID, workshopID)
-	if existing != nil && (existing.Status == model.RegSuccess || existing.Status == model.RegPendingPayment) {
+	if existing != nil && existing.Status == model.RegSuccess {
 		return "", fmt.Errorf("already registered for this workshop")
 	}
 
@@ -159,11 +181,6 @@ func (s *RegistrationService) EnqueueRegistration(ctx context.Context, userID, w
 	}
 	if !workshop.RegistrationEndTime.IsZero() && now.After(workshop.RegistrationEndTime) {
 		return "", fmt.Errorf("thời hạn đăng ký chuyên đề này đã kết thúc")
-	}
-
-	// CHECK: Nếu là workshop có phí mà cổng thanh toán đang bảo trì -> Chặn luôn
-	if workshop.Price > 0 && s.paymentService.IsGatewayDown(ctx) {
-		return "", fmt.Errorf("cổng thanh toán đang bảo trì, vui lòng quay lại sau")
 	}
 
 	if err := s.seatLimiter.PrepareCache(ctx, workshopID, workshop.AvailableSeats); err != nil {
@@ -241,12 +258,7 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 	}
 
 	// Determine status based on price
-	var regStatus model.RegistrationStatus
-	if workshop.Price > 0 {
-		regStatus = model.RegPendingPayment
-	} else {
-		regStatus = model.RegSuccess
-	}
+	regStatus := model.RegSuccess
 
 	reg := &model.Registration{
 		UserID:     msg.UserID,
@@ -277,7 +289,7 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 	}
 
 	// Generate RSA Signature for successful registrations (now we have reg.ID)
-	if regStatus == model.RegSuccess && s.crypto != nil {
+	if s.crypto != nil {
 		user, err := s.userRepo.FindByID(ctx, msg.UserID)
 		if err == nil {
 			// Sign with 4-field context for mobile: sid, uid, wid
@@ -296,19 +308,6 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Nếu là workshop có phí, khởi tạo thanh toán ngay lập tức
-	var paymentURL string
-	var paymentAmount float64
-	if regStatus == model.RegPendingPayment {
-		pay, url, err := s.paymentService.InitiatePayment(ctx, reg.ID)
-		if err != nil {
-			log.Printf("[WORKER] Payment initiation failed: %v", err)
-		} else {
-			paymentURL = url
-			paymentAmount = pay.Amount
-		}
-	}
-
 	log.Printf("[WORKER] Registration finalized: id=%s status=%s", reg.ID, regStatus)
 
 	// Release waiting room slot so next queued user can be promoted
@@ -320,45 +319,30 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 		CorrelationID: msg.CorrelationID,
 		Status:        regStatus,
 		Registration:  reg,
-		Message:       fmt.Sprintf("Registration %s", regStatus),
-		PaymentURL:    paymentURL,
-		PaymentAmount: paymentAmount,
+		Message:       "Registration SUCCESS",
 	})
 
-	// If free workshop, publish notification event
-	if regStatus == model.RegSuccess {
-		notifEvent := model.NotificationEvent{
-			EventID:         fmt.Sprintf("REG_SUCCESS_%s", reg.ID),
-			UserID:          msg.UserID,
-			RegistrationID:  reg.ID,
-			Type:            "REGISTRATION_SUCCESS",
-			WorkshopTitle:   workshop.Title,
-			TicketSignature: "",
-		}
-		if reg.TicketSignature != nil {
-			notifEvent.TicketSignature = *reg.TicketSignature
-		}
-		_ = s.publisher.Publish(ctx, queue.NotificationQueue, notifEvent)
+	// Publish notification event
+	notifEvent := model.NotificationEvent{
+		EventID:         fmt.Sprintf("REG_SUCCESS_%s", reg.ID),
+		UserID:          msg.UserID,
+		RegistrationID:  reg.ID,
+		Type:            "REGISTRATION_SUCCESS",
+		WorkshopTitle:   workshop.Title,
+		TicketSignature: "",
 	}
+	if reg.TicketSignature != nil {
+		notifEvent.TicketSignature = *reg.TicketSignature
+	}
+	_ = s.publisher.Publish(ctx, queue.NotificationQueue, notifEvent)
 
 	return nil
 }
 
 func (s *RegistrationService) GetStatus(correlationID string) *model.RegistrationStatusResponse {
 	s.mu.RLock()
-	status := s.statuses[correlationID]
-	s.mu.RUnlock()
-
-	// Nếu trạng thái là PENDING_PAYMENT, lấy thêm thông tin thanh toán
-	if status != nil && status.Status == model.RegPendingPayment && status.Registration != nil {
-		url, amount, err := s.paymentService.GetCheckoutURL(context.Background(), status.Registration.ID)
-		if err == nil {
-			status.PaymentURL = url
-			status.PaymentAmount = amount
-		}
-	}
-
-	return status
+	defer s.mu.RUnlock()
+	return s.statuses[correlationID]
 }
 
 func (s *RegistrationService) SetStatus(correlationID string, status *model.RegistrationStatusResponse) {
@@ -392,8 +376,8 @@ func (s *RegistrationService) CancelRegistration(ctx context.Context, userID, re
 	}
 
 	// 3. Validate status
-	if reg.Status != model.RegSuccess && reg.Status != model.RegPendingPayment {
-		return fmt.Errorf("only SUCCESS or PENDING_PAYMENT registrations can be cancelled")
+	if reg.Status != model.RegSuccess {
+		return fmt.Errorf("only SUCCESS registrations can be cancelled")
 	}
 
 	// 4. Update status in DB
@@ -444,7 +428,7 @@ func (s *RegistrationService) ExportCSV(ctx context.Context, workshopID string, 
 				continue
 			}
 		} else { // "registered" or default
-			if reg.Status != model.RegSuccess && reg.Status != model.RegPendingPayment {
+			if reg.Status != model.RegSuccess {
 				continue
 			}
 		}

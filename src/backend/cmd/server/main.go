@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -77,7 +78,6 @@ func main() {
 	userRepo := repository.NewUserRepo(pgPool)
 	workshopRepo := repository.NewWorkshopRepo(pgPool)
 	regRepo := repository.NewRegistrationRepo(pgPool)
-	paymentRepo := repository.NewPaymentRepo(pgPool)
 	notifRepo := repository.NewNotificationRepo(pgPool)
 	importRepo := repository.NewImportRepo(pgPool)
 
@@ -104,8 +104,7 @@ func main() {
 	// Initialize services
 	authService := service.NewAuthService(userRepo, cfg.AuthSecret, publisher)
 	workshopService := service.NewWorkshopService(workshopRepo, redisClient)
-	paymentService := service.NewPaymentService(paymentRepo, regRepo, workshopRepo, userRepo, rsaProvider, publisher, redisClient, seatLimiter, cfg.PaymentWebhookSecret, cfg.PaymentGatewayURL)
-	regService := service.NewRegistrationService(regRepo, workshopRepo, userRepo, paymentService, rsaProvider, publisher, redisClient, waitingRoom, seatLimiter)
+	regService := service.NewRegistrationService(regRepo, workshopRepo, userRepo, rsaProvider, publisher, redisClient, waitingRoom, seatLimiter)
 	checkinService := service.NewCheckinService(regRepo)
 
 	// Notification strategies (Strategy + Observer Pattern)
@@ -120,7 +119,6 @@ func main() {
 	authHandler := handler.NewAuthHandler(authService, rsaProvider)
 	workshopHandler := handler.NewWorkshopHandler(workshopService)
 	regHandler := handler.NewRegistrationHandler(regService)
-	paymentHandler := handler.NewPaymentHandler(paymentService)
 	checkinHandler := handler.NewCheckinHandler(checkinService)
 	notifHandler := handler.NewNotificationHandler(notifService)
 	adminHandler := handler.NewAdminHandler(batchService, aiService, userRepo, cfg.CSVImportDir)
@@ -156,27 +154,6 @@ func main() {
 	r.Get("/api/v1/auth/public-key", authHandler.GetPublicKey)
 	r.Post("/api/v1/auth/forgot-password", authHandler.ForgotPassword)
 
-	// Payment webhook (public, signature-verified)
-	r.Post("/api/v1/payment/webhook", paymentHandler.Webhook)
-
-	// Mock Gateway Simulation (for testing)
-	mockHandler := handler.NewMockHandler(redisClient)
-	r.Post("/api/v1/mock/payment/toggle", mockHandler.ToggleGatewayStatus)
-	r.Get("/api/v1/mock/payment/status", mockHandler.GetGatewayStatus)
-
-	// Mock payment endpoint for testing
-	r.Get("/mock/payment/checkout", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(model.APIResponse{
-			Success: true,
-			Message: "Mock payment page - use webhook to simulate payment result",
-			Data: map[string]string{
-				"transaction_id": r.URL.Query().Get("tx"),
-				"instruction":    "POST to /api/v1/payment/webhook with transaction_id, status, and signature",
-			},
-		})
-	})
-
 	// Public workshop listing (no auth needed for browsing)
 	r.Get("/api/v1/workshops", workshopHandler.List)
 	r.Get("/api/v1/workshops/{id}", workshopHandler.GetByID)
@@ -202,8 +179,6 @@ func main() {
 			r.Get("/api/v1/registrations/waiting-room/{workshopId}", regHandler.GetWaitingRoomStatus)
 			r.Get("/api/v1/registrations/status/{correlationId}", regHandler.GetStatus)
 			r.Get("/api/v1/registrations/my", regHandler.MyRegistrations)
-			r.Post("/api/v1/payments/{registrationId}", paymentHandler.InitiatePayment)
-			r.Get("/api/v1/payments/status/{transactionId}", paymentHandler.GetPaymentStatus)
 		})
 
 		// Staff routes (check-in)
@@ -231,9 +206,6 @@ func main() {
 			r.Get("/api/v1/registrations/workshop/{workshopId}", regHandler.GetByWorkshopID)
 			r.Get("/api/v1/registrations/workshop/{workshopId}/export", regHandler.ExportWorkshopCSV)
 			r.Get("/api/v1/admin/stats", adminHandler.GetStats)
-			r.Get("/api/v1/admin/payments/pending", paymentHandler.GetPendingPayments)
-			r.Get("/api/v1/admin/payment/gateway-status", paymentHandler.GetGatewayStatus)
-			r.Get("/api/v1/admin/payment/circuit-breaker", paymentHandler.GetCircuitBreakerStatus)
 		})
 	})
 
@@ -248,7 +220,6 @@ func main() {
 	if mode == "worker" || mode == "all" {
 		go startRegistrationWorker(ctx, consumer, regService)
 		go startNotificationWorker(ctx, cfg.RabbitMQURL, notifService)
-		go startPaymentCleanupWorker(ctx, paymentService)
 		go startBatchImportScheduler(ctx, batchService)
 		log.Println("[SERVER] Background workers started")
 	}
@@ -305,43 +276,50 @@ func startRegistrationWorker(ctx context.Context, consumer *queue.Consumer, regS
 		log.Fatalf("[WORKER] Failed to start registration consumer: %v", err)
 	}
 
-	log.Println("[WORKER] Registration worker started")
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("[WORKER] Registration worker stopping")
-			return
-		case msg, ok := <-msgs:
-			if !ok {
-				return
-			}
-
-			var queueMsg model.QueueMessage
-			if err := json.Unmarshal(msg.Body, &queueMsg); err != nil {
-				log.Printf("[WORKER] Failed to unmarshal message: %v", err)
-				msg.Nack(false, false) // Send to DLQ
-				continue
-			}
-
-			if err := regService.ProcessRegistration(ctx, queueMsg); err != nil {
-				log.Printf("[WORKER] Processing failed: %v", err)
-				// Retry up to 3 times
-				retryCount := 0
-				if msg.Headers != nil {
-					if rc, ok := msg.Headers["x-retry-count"].(int64); ok {
-						retryCount = int(rc)
+	workerPoolSize := runtime.NumCPU() * 2
+	if workerPoolSize < 10 {
+		workerPoolSize = 10
+	}
+	log.Printf("[WORKER] Registration worker pool started with %d workers (across %d CPU cores)", workerPoolSize, runtime.NumCPU())
+	for i := 0; i < workerPoolSize; i++ {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case msg, ok := <-msgs:
+					if !ok {
+						return
 					}
-				}
-				if retryCount < 3 {
-					msg.Nack(false, true) // Requeue
-				} else {
-					msg.Nack(false, false) // Send to DLQ
-				}
-				continue
-			}
 
-			msg.Ack(false)
-		}
+					var queueMsg model.QueueMessage
+					if err := json.Unmarshal(msg.Body, &queueMsg); err != nil {
+						log.Printf("[WORKER] Failed to unmarshal message: %v", err)
+						msg.Nack(false, false) // Send to DLQ
+						continue
+					}
+
+					if err := regService.ProcessRegistration(ctx, queueMsg); err != nil {
+						log.Printf("[WORKER] Processing failed: %v", err)
+						// Retry up to 3 times
+						retryCount := 0
+						if msg.Headers != nil {
+							if rc, ok := msg.Headers["x-retry-count"].(int64); ok {
+								retryCount = int(rc)
+							}
+						}
+						if retryCount < 3 {
+							msg.Nack(false, true) // Requeue
+						} else {
+							msg.Nack(false, false) // Send to DLQ
+						}
+						continue
+					}
+
+					msg.Ack(false)
+				}
+			}
+		}()
 	}
 }
 
@@ -378,21 +356,6 @@ func startNotificationWorker(ctx context.Context, rabbitURL string, notifService
 
 			notifService.Dispatch(ctx, event)
 			msg.Ack(false)
-		}
-	}
-}
-
-func startPaymentCleanupWorker(ctx context.Context, paymentService *service.PaymentService) {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	log.Println("[WORKER] Payment cleanup worker started (interval: 5min)")
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			paymentService.CleanupExpiredPayments(ctx)
 		}
 	}
 }

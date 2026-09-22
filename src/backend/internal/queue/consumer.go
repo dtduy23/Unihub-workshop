@@ -25,8 +25,8 @@ func NewConsumer(url string) (*Consumer, error) {
 		return nil, fmt.Errorf("failed to open channel: %w", err)
 	}
 
-	// Set QoS (prefetch count = 1 for fair dispatch)
-	if err := ch.Qos(1, 0, false); err != nil {
+	// Set QoS (prefetch count = 50 for concurrent worker pool)
+	if err := ch.Qos(50, 0, false); err != nil {
 		return nil, fmt.Errorf("failed to set QoS: %w", err)
 	}
 

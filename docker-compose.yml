@@ -20,7 +20,7 @@ services:
       POSTGRES_PASSWORD: unihub_secret
       POSTGRES_DB: unihub_workshop
     ports:
-      - "5432:5432"
+      - "${DB_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./src/backend/internal/database/migrations/001_init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
