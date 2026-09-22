@@ -31,14 +31,10 @@ type Config struct {
 	AuthSecret    string
 	RSAPrivateKey string
 
-	// Payment
-	PaymentGatewayURL    string
-	PaymentWebhookSecret string
-
 	// AI
-	AIApiURL    string
-	AIApiKey    string
-	GeminiModel string
+	AIApiURL      string
+	AIApiKey      string
+	GeminiModel   string
 	AITemperature float64
 	AIMaxTokens   int
 
@@ -84,12 +80,9 @@ func Load() *Config {
 		AuthSecret:    getEnv("AUTH_SECRET", "default-secret"),
 		RSAPrivateKey: getEnv("RSA_PRIVATE_KEY", ""),
 
-		PaymentGatewayURL:    getEnv("PAYMENT_GATEWAY_URL", "http://localhost:8080/mock/payment"),
-		PaymentWebhookSecret: getEnv("PAYMENT_WEBHOOK_SECRET", "webhook-secret-key"),
-
-		AIApiURL:    getEnv("AI_API_URL", "https://api.openai.com/v1/chat/completions"),
-		AIApiKey:    getEnv("GEMINI_API_KEY", getEnv("AI_API_KEY", "")),
-		GeminiModel: getEnv("GEMINI_MODEL", "gemini-1.5-flash-lite-preview"),
+		AIApiURL:      getEnv("AI_API_URL", "https://api.openai.com/v1/chat/completions"),
+		AIApiKey:      getEnv("GEMINI_API_KEY", getEnv("AI_API_KEY", "")),
+		GeminiModel:   getEnv("GEMINI_MODEL", "gemini-1.5-flash-lite-preview"),
 		AITemperature: getEnvFloat("AI_TEMPERATURE", 0.4),
 		AIMaxTokens:   getEnvInt("AI_MAX_TOKENS", 800),
 

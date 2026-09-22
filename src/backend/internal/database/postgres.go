@@ -7,15 +7,16 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"unihub-workshop/internal/config"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func NewPostgresPool(cfg *config.Config) *pgxpool.Pool {
 	// Sử dụng net/url để encode password an toàn (tránh lỗi ký tự đặc biệt như @)
 	userInfo := url.UserPassword(cfg.DBUser, cfg.DBPassword)
 	host := fmt.Sprintf("%s:%s", cfg.DBHost, cfg.DBPort)
-	
+
 	u := url.URL{
 		Scheme:   "postgres",
 		User:     userInfo,
@@ -23,7 +24,7 @@ func NewPostgresPool(cfg *config.Config) *pgxpool.Pool {
 		Path:     cfg.DBName,
 		RawQuery: fmt.Sprintf("sslmode=%s&timezone=Asia/Ho_Chi_Minh", cfg.DBSSLMode),
 	}
-	
+
 	dsn := u.String()
 
 	poolCfg, err := pgxpool.ParseConfig(dsn)
@@ -31,8 +32,8 @@ func NewPostgresPool(cfg *config.Config) *pgxpool.Pool {
 		log.Fatalf("Unable to parse database config: %v", err)
 	}
 
-	poolCfg.MaxConns = 20
-	poolCfg.MinConns = 5
+	poolCfg.MaxConns = 50
+	poolCfg.MinConns = 10
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 

@@ -11,9 +11,9 @@ import (
 type Role string
 
 const (
-	RoleStudent   Role = "STUDENT"
-	RoleStaff     Role = "STAFF"
-	RoleAdmin     Role = "ADMIN"
+	RoleStudent Role = "STUDENT"
+	RoleStaff   Role = "STAFF"
+	RoleAdmin   Role = "ADMIN"
 )
 
 type User struct {
@@ -41,11 +41,11 @@ const (
 )
 
 type Workshop struct {
-	ID             string         `json:"id"`
-	Title          string         `json:"title"`
-	Description    *string        `json:"description,omitempty"`
-	Speaker        *string        `json:"speaker"`
-	Room           string         `json:"room"`
+	ID                    string         `json:"id"`
+	Title                 string         `json:"title"`
+	Description           *string        `json:"description,omitempty"`
+	Speaker               *string        `json:"speaker"`
+	Room                  string         `json:"room"`
 	StartTime             time.Time      `json:"start_time"`
 	EndTime               time.Time      `json:"end_time"`
 	RegistrationStartTime time.Time      `json:"registration_start_time"`
@@ -66,18 +66,17 @@ type Workshop struct {
 type RegistrationStatus string
 
 const (
-	RegProcessing     RegistrationStatus = "PROCESSING"
-	RegPendingPayment RegistrationStatus = "PENDING_PAYMENT"
-	RegSuccess        RegistrationStatus = "SUCCESS"
-	RegFailed         RegistrationStatus = "FAILED"
-	RegCancelled      RegistrationStatus = "CANCELLED"
-	RegRejected       RegistrationStatus = "REJECTED"
+	RegProcessing RegistrationStatus = "PROCESSING"
+	RegSuccess    RegistrationStatus = "SUCCESS"
+	RegFailed     RegistrationStatus = "FAILED"
+	RegCancelled  RegistrationStatus = "CANCELLED"
+	RegRejected   RegistrationStatus = "REJECTED"
 )
 
 type Registration struct {
-	ID          string             `json:"id"`
-	UserID      string             `json:"user_id"`
-	WorkshopID  string             `json:"workshop_id"`
+	ID              string             `json:"id"`
+	UserID          string             `json:"user_id"`
+	WorkshopID      string             `json:"workshop_id"`
 	Status          RegistrationStatus `json:"status"`
 	TicketSignature *string            `json:"ticket_signature,omitempty"`
 	IsCheckedIn     bool               `json:"is_checked_in"`
@@ -98,29 +97,6 @@ type RegistrationWithUser struct {
 	StudentID string `json:"student_id"`
 	FullName  string `json:"full_name"`
 	Email     string `json:"email"`
-}
-
-// ==========================================
-// Payment
-// ==========================================
-
-type PaymentStatus string
-
-const (
-	PaymentPending   PaymentStatus = "PENDING"
-	PaymentSuccess   PaymentStatus = "SUCCESS"
-	PaymentFailed    PaymentStatus = "FAILED"
-	PaymentCancelled PaymentStatus = "CANCELLED"
-)
-
-type Payment struct {
-	ID             string        `json:"id"`
-	RegistrationID string        `json:"registration_id"`
-	TransactionID  string        `json:"transaction_id"`
-	Amount         float64       `json:"amount"`
-	Provider       string        `json:"provider"`
-	Status         PaymentStatus `json:"status"`
-	CreatedAt      time.Time     `json:"created_at"`
 }
 
 // ==========================================
@@ -221,14 +197,12 @@ type RegistrationStatusResponse struct {
 	Status        RegistrationStatus `json:"status"`
 	Registration  *Registration      `json:"registration,omitempty"`
 	Message       string             `json:"message,omitempty"`
-	PaymentURL    string             `json:"payment_url,omitempty"`
-	PaymentAmount float64            `json:"payment_amount,omitempty"`
 }
 
 type CreateWorkshopRequest struct {
-	Title         string  `json:"title"`
-	Speaker       string  `json:"speaker"`
-	Room          string  `json:"room"`
+	Title                 string  `json:"title"`
+	Speaker               string  `json:"speaker"`
+	Room                  string  `json:"room"`
 	StartTime             string  `json:"start_time"`
 	EndTime               string  `json:"end_time"`
 	RegistrationStartTime string  `json:"registration_start_time"`
@@ -240,9 +214,9 @@ type CreateWorkshopRequest struct {
 }
 
 type UpdateWorkshopRequest struct {
-	Title         *string  `json:"title,omitempty"`
-	Speaker       *string  `json:"speaker,omitempty"`
-	Room          *string  `json:"room,omitempty"`
+	Title                 *string  `json:"title,omitempty"`
+	Speaker               *string  `json:"speaker,omitempty"`
+	Room                  *string  `json:"room,omitempty"`
 	StartTime             *string  `json:"start_time,omitempty"`
 	EndTime               *string  `json:"end_time,omitempty"`
 	RegistrationStartTime *string  `json:"registration_start_time,omitempty"`
@@ -271,12 +245,6 @@ type OfflineCheckinRecord struct {
 	ScannedAt  int64  `json:"scanned_at"`
 }
 
-type PaymentWebhookRequest struct {
-	TransactionID string `json:"transaction_id"`
-	Status        string `json:"status"`
-	Signature     string `json:"signature"`
-}
-
 type QueueMessage struct {
 	CorrelationID string `json:"correlation_id"`
 	UserID        string `json:"user_id"`
@@ -285,13 +253,13 @@ type QueueMessage struct {
 }
 
 type NotificationEvent struct {
-	EventID        string            `json:"event_id"`
-	UserID         string            `json:"user_id"`
-	RegistrationID string            `json:"registration_id"`
-	Type           string            `json:"type"`
-	WorkshopTitle  string            `json:"workshop_title"`
-	TicketSignature string           `json:"ticket_signature,omitempty"`
-	Metadata       map[string]string `json:"metadata,omitempty"`
+	EventID         string            `json:"event_id"`
+	UserID          string            `json:"user_id"`
+	RegistrationID  string            `json:"registration_id"`
+	Type            string            `json:"type"`
+	WorkshopTitle   string            `json:"workshop_title"`
+	TicketSignature string            `json:"ticket_signature,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
 }
 
 type APIResponse struct {

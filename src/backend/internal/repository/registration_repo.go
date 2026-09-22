@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"unihub-workshop/internal/model"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"unihub-workshop/internal/model"
 )
 
 type RegistrationRepo struct {
@@ -23,7 +24,7 @@ func (r *RegistrationRepo) Create(ctx context.Context, tx pgx.Tx, reg *model.Reg
 		 VALUES ($1, $2, $3, $4) 
 		 ON CONFLICT (user_id, workshop_id) 
 		 DO UPDATE SET status = EXCLUDED.status, ticket_signature = EXCLUDED.ticket_signature, created_at = NOW()
-		 WHERE registrations.status NOT IN ('SUCCESS', 'PENDING_PAYMENT')
+		 WHERE registrations.status NOT IN ('SUCCESS')
 		 RETURNING id, created_at`,
 		reg.UserID, reg.WorkshopID, reg.Status, reg.TicketSignature,
 	).Scan(&reg.ID, &reg.CreatedAt)
@@ -144,7 +145,7 @@ func (r *RegistrationRepo) FindByStudentAndWorkshop(ctx context.Context, student
 		`SELECT r.id, r.user_id, r.workshop_id, r.status, r.ticket_signature, r.is_checked_in, r.created_at
 		 FROM registrations r
 		 JOIN users u ON r.user_id = u.id
-		 WHERE u.student_id = $1 AND r.workshop_id = $2 AND r.status IN ('SUCCESS', 'PENDING_PAYMENT')`,
+		 WHERE u.student_id = $1 AND r.workshop_id = $2 AND r.status = 'SUCCESS'`,
 		studentID, workshopID,
 	).Scan(&reg.ID, &reg.UserID, &reg.WorkshopID, &reg.Status, &reg.TicketSignature,
 		&reg.IsCheckedIn, &reg.CreatedAt)
@@ -179,31 +180,6 @@ func (r *RegistrationRepo) FindByWorkshopWithUser(ctx context.Context, workshopI
 		results = append(results, res)
 	}
 	return results, nil
-}
-
-// FindExpiredPendingPayments finds registrations that have been PENDING_PAYMENT for more than the given minutes
-func (r *RegistrationRepo) FindExpiredPendingPayments(ctx context.Context, minutes int) ([]model.Registration, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, user_id, workshop_id, status, ticket_signature, is_checked_in, created_at
-		 FROM registrations
-		 WHERE status = 'PENDING_PAYMENT'
-		   AND created_at < NOW() - INTERVAL '1 minute' * $1`, minutes,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var regs []model.Registration
-	for rows.Next() {
-		var reg model.Registration
-		if err := rows.Scan(&reg.ID, &reg.UserID, &reg.WorkshopID, &reg.Status, &reg.TicketSignature,
-			&reg.IsCheckedIn, &reg.CreatedAt); err != nil {
-			return nil, err
-		}
-		regs = append(regs, reg)
-	}
-	return regs, nil
 }
 
 func (r *RegistrationRepo) GetPool() *pgxpool.Pool {

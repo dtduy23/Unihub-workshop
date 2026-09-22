@@ -66,7 +66,7 @@ func (wr *WaitingRoom) SetAlgorithmParams(heartbeatTTL, weight, maxRandom int) {
 // Enter attempts to enter the waiting room for a specific workshop
 // Priority score formula: (now - openTime) * weight + randomVal
 // Returns the user's queue status and position
-func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string, openTime time.Time) (*WaitingRoomResult, error) {
+func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string, openTime time.Time, maxActive ...int) (*WaitingRoomResult, error) {
 	queueKey := fmt.Sprintf("waitingroom:%s", workshopID)
 	activeKey := fmt.Sprintf("waitingroom:active:%s", workshopID)
 	heartbeatKey := fmt.Sprintf("waitingroom:heartbeat:%s", workshopID)
@@ -85,9 +85,14 @@ func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string, ope
 		randomVal = rand.IntN(wr.maxRandom)
 	}
 
+	limit := wr.maxActive
+	if len(maxActive) > 0 && maxActive[0] > 0 {
+		limit = maxActive[0]
+	}
+
 	result, err := wr.enterScript.Run(ctx, wr.client,
 		[]string{queueKey, activeKey, heartbeatKey},
-		userID, now, openTimeUnix, wr.maxActive, wr.tokenTTL, wr.heartbeatTTL, wr.weight, randomVal,
+		userID, now, openTimeUnix, limit, wr.tokenTTL, wr.heartbeatTTL, wr.weight, randomVal,
 	).Int64Slice()
 
 	if err != nil {
@@ -117,8 +122,8 @@ func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string, ope
 	case QueueWaiting:
 		res.Position = secondVal
 		res.RetryAfter = 5 // Poll every 5 seconds (also acts as heartbeat)
-		if wr.maxActive > 0 {
-			res.EstimatedWait = secondVal * (wr.tokenTTL / wr.maxActive)
+		if limit > 0 {
+			res.EstimatedWait = secondVal * (wr.tokenTTL / limit)
 		}
 		if res.EstimatedWait < 5 {
 			res.EstimatedWait = 5
@@ -135,8 +140,8 @@ func (wr *WaitingRoom) Enter(ctx context.Context, workshopID, userID string, ope
 		res.Position = secondVal
 		res.TotalInQueue = totalInQueue
 		res.RetryAfter = 5
-		if wr.maxActive > 0 {
-			res.EstimatedWait = secondVal * (wr.tokenTTL / wr.maxActive)
+		if limit > 0 {
+			res.EstimatedWait = secondVal * (wr.tokenTTL / limit)
 		}
 		if res.EstimatedWait < 5 {
 			res.EstimatedWait = 5
@@ -171,16 +176,21 @@ func (wr *WaitingRoom) ReleaseAccess(ctx context.Context, workshopID, userID str
 
 // PromoteNext moves the next batch of users from the queue to the active set
 // Should be called periodically by a background worker or lazily on poll
-func (wr *WaitingRoom) PromoteNext(ctx context.Context, workshopID string) (int, error) {
+func (wr *WaitingRoom) PromoteNext(ctx context.Context, workshopID string, maxActive ...int) (int, error) {
 	queueKey := fmt.Sprintf("waitingroom:%s", workshopID)
 	activeKey := fmt.Sprintf("waitingroom:active:%s", workshopID)
 	heartbeatKey := fmt.Sprintf("waitingroom:heartbeat:%s", workshopID)
 
 	now := float64(time.Now().UnixMilli()) / 1000.0
 
+	limit := wr.maxActive
+	if len(maxActive) > 0 && maxActive[0] > 0 {
+		limit = maxActive[0]
+	}
+
 	promoted, err := wr.promoteScript.Run(ctx, wr.client,
 		[]string{queueKey, activeKey, heartbeatKey},
-		wr.maxActive, wr.tokenTTL, now,
+		limit, wr.tokenTTL, now,
 	).Int64()
 
 	if err != nil {

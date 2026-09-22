@@ -1,13 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { api, APIError } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
 import { toast } from 'sonner'
 
 export function useRegistration(workshopId: string) {
   const [isRegistering, setIsRegistering] = useState(false)
   const [regStatus, setRegStatus] = useState<string | null>(null)
   const [waitingPosition, setWaitingPosition] = useState<number | null>(null)
-  const [showPaymentDialog, setShowPaymentDialog] = useState(false)
-  const [paymentInfo, setPaymentInfo] = useState<{ url: string, amount: number, title: string } | null>(null)
 
   // Dùng Ref để phá vỡ vòng lặp phụ thuộc giữa handleRegister và pollWaitingRoom
   const handleRegisterRef = useRef<() => Promise<void>>()
@@ -28,16 +26,6 @@ export function useRegistration(workshopId: string) {
               id: `reg-success-${workshopId}`,
               description: 'Vui lòng kiểm tra email để nhận thông tin vé và hướng dẫn tham gia.'
             })
-            window.dispatchEvent(new CustomEvent('registration-success', { detail: { workshopId } }))
-            window.dispatchEvent(new CustomEvent(`workshop-reg-success-${workshopId}`))
-          } else if (response.data?.status === 'PENDING_PAYMENT') {
-            // Không hiện toast ở đây vì QR dialog sẽ hiện ra
-            setPaymentInfo({
-              url: response.data.paymentUrl,
-              amount: response.data.paymentAmount,
-              title: response.data.message || 'Thanh toán đăng ký Workshop'
-            })
-            setShowPaymentDialog(true)
             window.dispatchEvent(new CustomEvent('registration-success', { detail: { workshopId } }))
             window.dispatchEvent(new CustomEvent(`workshop-reg-success-${workshopId}`))
           } else {
@@ -92,12 +80,7 @@ export function useRegistration(workshopId: string) {
     } catch (error: any) {
       const errorMsg = error.message || ""
       
-      if (errorMsg.includes("bảo trì") || errorMsg.includes("maintenance") || errorMsg.includes("outage") || errorMsg.includes("circuit breaker")) {
-        toast.error('Cổng thanh toán đang bảo trì', {
-          id: `reg-maint-${workshopId}`,
-          description: 'Hệ thống thanh toán hiện đang bảo trì để nâng cấp. Vui lòng quay lại sau ít phút.'
-        })
-      } else if (error.status === 401) {
+      if (error.status === 401) {
         toast.error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', { id: 'auth-error' })
       } else if (error.status === 429) {
         setRegStatus('Đang trong phòng chờ...')
@@ -122,9 +105,6 @@ export function useRegistration(workshopId: string) {
     isRegistering,
     regStatus,
     waitingPosition,
-    showPaymentDialog,
-    setShowPaymentDialog,
-    paymentInfo,
     handleRegister
   }
 }

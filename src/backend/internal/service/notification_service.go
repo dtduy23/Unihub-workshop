@@ -74,8 +74,6 @@ func buildTitle(eventType, workshopTitle string) string {
 	switch eventType {
 	case "REGISTRATION_SUCCESS":
 		return fmt.Sprintf("🎉 Xác nhận đăng ký: %s", workshopTitle)
-	case "PAYMENT_SUCCESS":
-		return fmt.Sprintf("💳 Thanh toán thành công: %s", workshopTitle)
 	case "FORGOT_PASSWORD":
 		return "🔑 Cấp lại mật khẩu mới - UniHub"
 	default:
@@ -89,7 +87,7 @@ func buildContent(event model.NotificationEvent) string {
 		if event.Metadata != nil {
 			newPassword = event.Metadata["new_password"]
 		}
-		
+
 		return fmt.Sprintf(`
 			<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #334155; line-height: 1.6;">
 				<div style="background: #1e40af; padding: 30px; text-align: center; border-radius: 12px 12px 0 0;">
@@ -115,13 +113,7 @@ func buildContent(event model.NotificationEvent) string {
 		`, newPassword)
 	}
 
-	if event.Type == "REGISTRATION_SUCCESS" || event.Type == "PAYMENT_SUCCESS" {
-		isPaid := event.Type == "PAYMENT_SUCCESS"
-		paymentLine := ""
-		if isPaid {
-			paymentLine = `<p style="color: #059669; font-weight: bold; margin-bottom: 20px;">✓ Hệ thống đã xác nhận bạn hoàn tất thanh toán thành công.</p>`
-		}
-
+	if event.Type == "REGISTRATION_SUCCESS" {
 		return fmt.Sprintf(`
 			<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #334155; line-height: 1.6;">
 				<div style="background: #1e40af; padding: 30px; text-align: center; border-radius: 12px 12px 0 0;">
@@ -130,8 +122,6 @@ func buildContent(event model.NotificationEvent) string {
 				<div style="padding: 30px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px; background: white;">
 					<h2 style="color: #0f172a; margin-top: 0;">Chúc mừng bạn!</h2>
 					<p>Bạn đã đăng ký thành công workshop <strong>"%s"</strong>.</p>
-					
-					%s
 
 					<div style="background: #f0f7ff; padding: 20px; border-radius: 8px; border-left: 4px solid #1e40af; margin: 20px 0;">
 						<p style="margin: 0; font-weight: bold; color: #1e40af;">Hướng dẫn lấy mã QR:</p>
@@ -145,7 +135,7 @@ func buildContent(event model.NotificationEvent) string {
 				</div>
 				<p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 20px;">Đây là email tự động từ UniHub Workshop Management System.</p>
 			</div>
-		`, event.WorkshopTitle, paymentLine)
+		`, event.WorkshopTitle)
 	}
 
 	return fmt.Sprintf("<p>Bạn có cập nhật mới về workshop <strong>\"%s\"</strong>.</p>", event.WorkshopTitle)

@@ -67,7 +67,6 @@ export type Workshop = {
 // ==========================================
 
 export const RegistrationStatus = {
-  PENDING_PAYMENT: 'PENDING_PAYMENT',
   SUCCESS: 'SUCCESS',
   FAILED: 'FAILED',
   CANCELLED: 'CANCELLED',
@@ -91,28 +90,6 @@ export type RegistrationStatusResponse = {
   status: RegistrationStatus | 'PROCESSING'
   registration?: Registration
   message?: string
-}
-
-// ==========================================
-// Payment
-// ==========================================
-
-export const PaymentStatus = {
-  PENDING: 'PENDING',
-  SUCCESS: 'SUCCESS',
-  FAILED: 'FAILED',
-  CANCELLED: 'CANCELLED',
-} as const
-export type PaymentStatus = (typeof PaymentStatus)[keyof typeof PaymentStatus]
-
-export type Payment = {
-  id: string
-  registrationId: string
-  transactionId: string
-  amount: number
-  provider: string
-  status: PaymentStatus
-  createdAt: string
 }
 
 // ==========================================

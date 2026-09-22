@@ -78,12 +78,6 @@ GET    /api/v1/registrations/status/{correlationId} # Polling trạng thái
 GET    /api/v1/registrations/my                   # Danh sách đã đăng ký
 ```
 
-### Payment (Student)
-```
-POST   /api/v1/payments/{registrationId}  # Khởi tạo thanh toán
-POST   /api/v1/payment/webhook            # Webhook callback (public)
-```
-
 ### Check-in (Staff)
 ```
 POST   /api/v1/checkin/live         # Check-in online
@@ -99,7 +93,6 @@ POST   /api/v1/admin/import/csv     # Upload CSV import
 GET    /api/v1/admin/import/jobs    # Lịch sử import
 POST   /api/v1/admin/workshops/{workshopId}/summary  # Upload PDF → AI Summary
 GET    /api/v1/admin/stats          # Thống kê hệ thống
-GET    /api/v1/admin/payment/circuit-breaker  # Trạng thái Circuit Breaker
 ```
 
 ### Notification
@@ -145,15 +138,16 @@ curl -X POST http://localhost:8080/api/v1/admin/import/csv \
 - Fallback sang In-memory khi Redis down
 - Response 429 + Retry-After header
 
-### 2. Circuit Breaker (Payment Gateway)
+### 2. Circuit Breaker (AI Summary Service)
 - 3 trạng thái: CLOSED → OPEN → HALF-OPEN
-- Ngưỡng: 50% error rate trong 10s
-- Sleep window: 30s
-- Graceful Degradation khi mạch mở
+- Ngưỡng: 50% error rate trong 30s
+- Sleep window: 60s
+- Graceful Degradation khi dịch vụ AI gặp sự cố
 
-### 3. Idempotency (Chống trừ tiền 2 lần)
-- Redis SETNX với TTL 24h
-- Key format: `payment:idempotency:{transaction_id}`
+### 3. Idempotency (Chống đăng ký trùng & gửi thông báo lặp)
+- Composite Unique Constraint: `uq_user_workshop (user_id, workshop_id)`
+- Unique Event Constraint: `uq_event_channel (event_id, channel)` trên notifications
+- Redis ZSET Member Uniqueness trong Virtual Waiting Room
 
 ### 4. Pessimistic Locking (Tranh chấp chỗ ngồi)
 - `SELECT ... FOR UPDATE` trong PostgreSQL
