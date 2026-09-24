@@ -224,7 +224,7 @@ func (s *RegistrationService) EnqueueRegistration(ctx context.Context, userID, w
 func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model.QueueMessage) error {
 	log.Printf("[WORKER] Processing registration: correlation=%s", msg.CorrelationID)
 
-	// Get workshop info to determine if it's free or paid
+	// 1. Get workshop info to determine if it exists
 	workshop, err := s.GetCachedWorkshop(ctx, msg.WorkshopID)
 	if err != nil {
 		s.SetStatus(msg.CorrelationID, &model.RegistrationStatusResponse{
@@ -235,14 +235,38 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 		return err
 	}
 
-	// Begin transaction with Pessimistic Locking
+	// 2. TỐI ƯU HIỆU NĂNG: Chuẩn bị trước chữ ký số RSA NGOÀI Transaction
+	// Thay vì chiếm lock dòng 'workshops' rồi mới ngồi tính toán CPU và query User,
+	// ta tính toán chữ ký số xong xuôi trước khi mở Transaction Database!
+	var ticketSig *string
+	if s.crypto != nil {
+		studentID := s.getCachedStudentID(ctx, msg.UserID)
+		if studentID != "" {
+			qrData, err := s.crypto.SignTicket(studentID, msg.UserID, msg.WorkshopID)
+			if err == nil {
+				ticketSig = &qrData
+			} else {
+				log.Printf("[WORKER] RSA signing warning: %v", err)
+			}
+		}
+	}
+
+	regStatus := model.RegSuccess
+	reg := &model.Registration{
+		UserID:          msg.UserID,
+		WorkshopID:      msg.WorkshopID,
+		Status:          regStatus,
+		TicketSignature: ticketSig, // Đính kèm sẵn chữ ký số để chèn luôn trong câu lệnh INSERT
+	}
+
+	// 3. TRANSACTION SIÊU NGẮN (CHỈ DÀNH RIÊNG CHO TRỪ GHẾ + TẠO VÉ)
 	tx, err := s.workshopRepo.GetPool().Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	// SELECT FOR UPDATE - Pessimistic Lock
+	// SELECT FOR UPDATE - Pessimistic Lock (Khóa dòng workshop)
 	_, err = s.workshopRepo.DecrementSeatWithLock(ctx, tx, msg.WorkshopID)
 	if err != nil {
 		// DB says no seats! (Inconsistency with Redis)
@@ -257,15 +281,7 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 		return err
 	}
 
-	// Determine status based on price
-	regStatus := model.RegSuccess
-
-	reg := &model.Registration{
-		UserID:     msg.UserID,
-		WorkshopID: msg.WorkshopID,
-		Status:     regStatus,
-	}
-
+	// INSERT vé trực tiếp (kèm sẵn ticket_signature trong 1 câu lệnh duy nhất)
 	if err := s.regRepo.Create(ctx, tx, reg); err != nil {
 		tx.Rollback(ctx)
 
@@ -288,24 +304,23 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 		return fmt.Errorf("failed to create registration: %w", err)
 	}
 
-	// Generate RSA Signature for successful registrations (now we have reg.ID)
-	if s.crypto != nil {
-		user, err := s.userRepo.FindByID(ctx, msg.UserID)
-		if err == nil {
-			// Sign with 4-field context for mobile: sid, uid, wid
-			qrData, err := s.crypto.SignTicket(user.StudentID, msg.UserID, msg.WorkshopID)
-			if err == nil {
-				reg.TicketSignature = &qrData
-				// Update the signature in DB
-				_, _ = tx.Exec(ctx, "UPDATE registrations SET ticket_signature = $1 WHERE id = $2", qrData, reg.ID)
-			} else {
-				log.Printf("[WORKER] RSA signing failed: %v", err)
-			}
-		}
-	}
-
+	// 4. COMMIT NGAY LẬP TỨC: GIẢI PHÓNG TOÀN BỘ KHÓA DÒNG TRÊN WORKSHOP!
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// 5. NẾU CHƯA KÝ ĐƯỢC CHỮ KÝ TRƯỚC ĐÓ (FALLBACK), CẬP NHẬT NGOÀI TRANSACTION:
+	if reg.TicketSignature == nil && s.crypto != nil {
+		go func(regID, userID, workshopID string) {
+			studentID := s.getCachedStudentID(context.Background(), userID)
+			if studentID != "" {
+				qrData, err := s.crypto.SignTicket(studentID, userID, workshopID)
+				if err == nil {
+					_, _ = s.workshopRepo.GetPool().Exec(context.Background(),
+						"UPDATE registrations SET ticket_signature = $1 WHERE id = $2", qrData, regID)
+				}
+			}
+		}(reg.ID, msg.UserID, msg.WorkshopID)
 	}
 
 	log.Printf("[WORKER] Registration finalized: id=%s status=%s", reg.ID, regStatus)
@@ -349,6 +364,25 @@ func (s *RegistrationService) SetStatus(correlationID string, status *model.Regi
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.statuses[correlationID] = status
+}
+
+// getCachedStudentID retrieves the user's studentID with 24h Redis caching
+func (s *RegistrationService) getCachedStudentID(ctx context.Context, userID string) string {
+	cacheKey := fmt.Sprintf("user:sid:%s", userID)
+	if s.redis != nil {
+		if sid, err := s.redis.Get(ctx, cacheKey).Result(); err == nil && sid != "" {
+			return sid
+		}
+	}
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		log.Printf("[WORKER] User not found for studentID lookup: %v", err)
+		return ""
+	}
+	if s.redis != nil {
+		_ = s.redis.Set(ctx, cacheKey, user.StudentID, 24*time.Hour).Err()
+	}
+	return user.StudentID
 }
 
 func (s *RegistrationService) GetUserRegistrations(ctx context.Context, userID string) ([]model.Registration, error) {
