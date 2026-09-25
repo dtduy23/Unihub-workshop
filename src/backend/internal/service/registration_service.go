@@ -31,8 +31,6 @@ type RegistrationService struct {
 	redis         *redis.Client
 	waitingRoom   *waitingroom.WaitingRoom
 	seatLimiter   *seatlimiter.SeatLimiter
-	mu            sync.RWMutex
-	statuses      map[string]*model.RegistrationStatusResponse
 	lastPromoteMu sync.Mutex
 	lastPromote   map[string]time.Time
 }
@@ -56,7 +54,6 @@ func NewRegistrationService(
 		redis:        redisClient,
 		waitingRoom:  waitingRoom,
 		seatLimiter:  seatLimiter,
-		statuses:     make(map[string]*model.RegistrationStatusResponse),
 		lastPromote:  make(map[string]time.Time),
 	}
 }
@@ -354,16 +351,38 @@ func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model
 	return nil
 }
 
+const registrationStatusTTL = 1 * time.Hour
+
 func (s *RegistrationService) GetStatus(correlationID string) *model.RegistrationStatusResponse {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.statuses[correlationID]
+	if s.redis == nil || correlationID == "" {
+		return nil
+	}
+	cacheKey := fmt.Sprintf("reg:status:%s", correlationID)
+	val, err := s.redis.Get(context.Background(), cacheKey).Result()
+	if err != nil || val == "" {
+		return nil
+	}
+	var status model.RegistrationStatusResponse
+	if err := json.Unmarshal([]byte(val), &status); err != nil {
+		log.Printf("[REG_SERVICE] Failed to unmarshal status for %s: %v", correlationID, err)
+		return nil
+	}
+	return &status
 }
 
 func (s *RegistrationService) SetStatus(correlationID string, status *model.RegistrationStatusResponse) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.statuses[correlationID] = status
+	if s.redis == nil || status == nil || correlationID == "" {
+		return
+	}
+	data, err := json.Marshal(status)
+	if err != nil {
+		log.Printf("[REG_SERVICE] Failed to marshal status for %s: %v", correlationID, err)
+		return
+	}
+	cacheKey := fmt.Sprintf("reg:status:%s", correlationID)
+	if err := s.redis.Set(context.Background(), cacheKey, data, registrationStatusTTL).Err(); err != nil {
+		log.Printf("[REG_SERVICE] Failed to set status in Redis for %s: %v", correlationID, err)
+	}
 }
 
 // getCachedStudentID retrieves the user's studentID with 24h Redis caching
