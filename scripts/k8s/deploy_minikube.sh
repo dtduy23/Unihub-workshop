@@ -3,7 +3,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-K8S_DIR="$SCRIPT_DIR/deploy/k8s"
+K8S_DIR="$(cd "$SCRIPT_DIR/../../deploy/k8s" && pwd)"
 
 echo ""
 echo "=============================================="
