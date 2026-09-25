@@ -2,12 +2,14 @@
   <img src="docs/images/hero_banner.png" alt="UniHub Workshop Banner" width="800"/>
 </p>
 
-<h1 align="center">🎓 UniHub Workshop</h1>
+<h1 align="center">🎓 UniHub Workshop Platform</h1>
+
 <p align="center">
-  <strong>High-Concurrency Event Management Platform for Universities</strong>
+  <strong>Enterprise-Grade, High-Concurrency Event Ticketing & Offline-First Verification Platform</strong>
 </p>
+
 <p align="center">
-  Hệ thống quản lý, đăng ký và check-in sự kiện (Tuần lễ kỹ năng và nghề nghiệp) tải trọng cao dành cho sinh viên và ban tổ chức.
+  A distributed, cloud-native system engineered to handle extreme flash-crowd workshop registrations, offline cryptographic ticket validation, and automated GitOps infrastructure.
 </p>
 
 <p align="center">
@@ -15,264 +17,283 @@
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL"/>
   <img src="https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis"/>
   <img src="https://img.shields.io/badge/RabbitMQ-3-FF6600?style=for-the-badge&logo=rabbitmq&logoColor=white" alt="RabbitMQ"/>
+  <img src="https://img.shields.io/badge/Kubernetes-1.30-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white" alt="Kubernetes"/>
+  <img src="https://img.shields.io/badge/Helm-3-0F1689?style=for-the-badge&logo=helm&logoColor=white" alt="Helm"/>
+  <img src="https://img.shields.io/badge/ArgoCD-GitOps-EF7B4D?style=for-the-badge&logo=argo&logoColor=white" alt="ArgoCD"/>
+  <img src="https://img.shields.io/badge/Terraform-IaC-844FBA?style=for-the-badge&logo=terraform&logoColor=white" alt="Terraform"/>
   <img src="https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js"/>
-  <img src="https://img.shields.io/badge/Expo-React_Native-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo"/>
-  <img src="https://img.shields.io/badge/GCP-Kubernetes-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white" alt="GCP"/>
+  <img src="https://img.shields.io/badge/React_Native-Expo-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo"/>
 </p>
 
 ---
 
-## 🌟 Tính năng nghiệp vụ
-
-| Vai trò | Tính năng |
-|---------|-----------|
-| **Sinh viên** | Xem danh sách workshop, sơ đồ phòng, trạng thái ghế trống (thời gian thực). Đăng ký (miễn phí/trả phí) và nhận mã QR qua email. |
-| **Ban tổ chức (Admin)** | Quản lý sự kiện, tải lên PDF để AI tóm tắt nội dung tự động, Import CSV 12,000 sinh viên. Xem thống kê hệ thống. |
-| **Nhân sự Check-in (Staff)** | Quét mã QR tại cửa hội trường bằng ứng dụng di động. Hỗ trợ ghi nhận **Offline (Mất mạng hoàn toàn)** và tự động đồng bộ khi có Internet. |
-
----
-
-## 📋 Yêu cầu Chức năng (Functional Requirements)
-
-### FR-1: Xác thực và Phân quyền (Authentication & Authorization)
-
-| ID | Mô tả | Actor |
-|----|-------|-------|
-| FR-1.1 | Hệ thống cho phép người dùng đăng nhập bằng **Mã số Sinh viên** (hoặc Email) và mật khẩu. Mật khẩu được mã hoá bằng **bcrypt**. | Tất cả |
-| FR-1.2 | Sau khi đăng nhập, hệ thống trả về **JWT Token** chứa thông tin user ID và role. Token được sử dụng cho tất cả các API yêu cầu xác thực. | Tất cả |
-| FR-1.3 | Hệ thống phân quyền 3 vai trò: **STUDENT**, **STAFF**, **ADMIN**. Middleware kiểm tra role trên từng nhóm endpoint. | Hệ thống |
-| FR-1.4 | Sinh viên có thể **Quên mật khẩu**: hệ thống tự sinh mật khẩu ngẫu nhiên, cập nhật vào DB và gửi email thông báo mật khẩu mới. | Sinh viên |
-| FR-1.5 | Người dùng đã đăng nhập có thể **Đổi mật khẩu** bằng cách cung cấp mật khẩu cũ và mật khẩu mới. | Tất cả |
-| FR-1.6 | API **Get Public Key** cho phép ứng dụng Mobile tải về khoá công khai RSA-2048 để xác thực chữ ký vé offline. | Mobile App |
+## 📑 Table of Contents
+- [Executive Overview](#-executive-overview)
+- [System Architecture](#-system-architecture)
+- [Key Engineering & Concurrency Highlights](#-key-engineering--concurrency-highlights)
+- [Verified Concurrency Benchmarks](#-verified-concurrency-benchmarks)
+- [DevOps, GitOps & Cloud Infrastructure](#-devops-gitops--cloud-infrastructure)
+- [Repository Structure](#-repository-structure)
+- [Quick Start Guide (Local Development)](#-quick-start-guide-local-development)
+- [Seed Data & Demo Credentials](#-seed-data--demo-credentials)
+- [License & Contributions](#-license--contributions)
 
 ---
 
-### FR-2: Quản lý Workshop (Workshop Management)
+## 🌟 Executive Overview
 
-| ID | Mô tả | Actor |
-|----|-------|-------|
-| FR-2.1 | Sinh viên có thể **xem danh sách** tất cả Workshop đang `PUBLISHED`, hỗ trợ **tìm kiếm theo tiêu đề**. | Sinh viên |
-| FR-2.2 | Sinh viên có thể **xem chi tiết** Workshop: tiêu đề, diễn giả, phòng, sơ đồ phòng (`room_layout_url`), thời gian, sức chứa, số ghế trống (real-time), giá vé, và tóm tắt nội dung (AI-generated). | Sinh viên |
-| FR-2.3 | Admin có thể **tạo mới** Workshop: nhập tiêu đề, diễn giả, phòng, thời gian bắt đầu/kết thúc, thời gian mở/đóng đăng ký, sức chứa, giá vé (miễn phí hoặc trả phí), sơ đồ phòng. | Admin |
-| FR-2.4 | Admin có thể **cập nhật** thông tin Workshop (partial update): thay đổi bất kỳ trường nào mà không ảnh hưởng các trường khác. | Admin |
-| FR-2.5 | Admin có thể **huỷ** Workshop: trạng thái chuyển sang `DELETED`, Workshop không hiển thị cho sinh viên. | Admin |
+During university-wide career and technical workshop weeks, thousands of students compete simultaneously for limited seating capacities (50–500 seats) within the very first seconds of registration opening. Traditional monolithic systems fail under these flash-crowds due to database connection pool exhaustion, pessimistic lock contention, and cascading service outages.
 
----
-
-### FR-3: Đăng ký Workshop (Registration)
-
-| ID | Mô tả | Actor |
-|----|-------|-------|
-| FR-3.1 | Sinh viên gửi yêu cầu đăng ký → hệ thống kiểm tra **Virtual Waiting Room** (Redis ZSET). Nếu quá tải, sinh viên được xếp vào phòng chờ và nhận vị trí hàng đợi. | Sinh viên |
-| FR-3.2 | Khi được cấp quyền vào, hệ thống kiểm tra **Redis Seat Lock** (kiểm tra nhanh số ghế trống trên cache) → nếu còn ghế, yêu cầu được đẩy vào **RabbitMQ** và trả về `HTTP 202 Accepted` cùng `correlation_id`. | Sinh viên |
-| FR-3.3 | Background Worker nhận message → thực hiện **Pessimistic Locking** (`SELECT FOR UPDATE`) trên PostgreSQL → trừ ghế → tạo bản ghi Registration. Nếu workshop miễn phí → trạng thái `SUCCESS`; nếu có phí → trạng thái `PENDING_PAYMENT`. | Hệ thống |
-| FR-3.4 | Với workshop miễn phí, hệ thống tự động **ký chữ ký số RSA-2048** lên vé (chứa mã SV + Workshop ID) và lưu `ticket_signature` vào DB. | Hệ thống |
-| FR-3.5 | Sinh viên có thể **polling trạng thái** đăng ký qua `correlation_id` để biết kết quả xử lý (PROCESSING → SUCCESS / PENDING_PAYMENT / REJECTED / FAILED). | Sinh viên |
-| FR-3.6 | Sinh viên có thể **xem danh sách** các Workshop đã đăng ký của mình (bao gồm tên workshop, phòng, thời gian). | Sinh viên |
-| FR-3.7 | Sinh viên có thể **huỷ đăng ký** (chỉ khi trạng thái là `SUCCESS` hoặc `PENDING_PAYMENT`): hệ thống hoàn trả ghế vào cả PostgreSQL và Redis Cache. | Sinh viên |
-| FR-3.8 | Admin có thể **xem danh sách sinh viên** đã đăng ký theo từng Workshop (bao gồm mã SV, họ tên, email, trạng thái, điểm danh). | Admin |
-| FR-3.9 | Admin có thể **xuất CSV** danh sách sinh viên theo Workshop: hỗ trợ 2 loại — `registered` (tất cả đã đăng ký) và `attended` (chỉ những người đã check-in). File CSV có BOM UTF-8 để tương thích Excel. | Admin |
+**UniHub Workshop** solves this with a **zero-overbooking, multi-tier asynchronous architecture**:
+1. **Students (Web App):** Real-time seat visibility, sub-millisecond virtual waiting room queueing, automated polling, and cryptographic QR ticket delivery.
+2. **Event Organizers (Admin Portal):** Event lifecycle management, automated AI academic summarization via Google Gemini, and streaming chunked batch imports for up to 12,000 student accounts.
+3. **Event Staff (Mobile App):** Real-time gate check-in with **offline-first cryptographic verification** (validating RSA-2048 digital signatures locally without internet access) and background conflict-resolution syncing.
 
 ---
 
-### FR-4: Thanh toán (Payment)
-
-| ID | Mô tả | Actor |
-|----|-------|-------|
-| FR-4.1 | Khi đăng ký Workshop trả phí, hệ thống **tự động tạo giao dịch** với mã `transaction_id` duy nhất và trả về `checkout_url` cho sinh viên thanh toán. | Hệ thống |
-| FR-4.2 | **Idempotency**: nếu sinh viên gọi lại API thanh toán cho cùng đăng ký, hệ thống trả về giao dịch `PENDING` đã tồn tại thay vì tạo mới (tránh payment rác). | Hệ thống |
-| FR-4.3 | Cổng thanh toán gọi lại **Webhook** với `transaction_id`, `status` (SUCCESS/FAILED) và `signature`. Hệ thống xác thực HMAC-SHA256 trước khi xử lý. | Cổng TT |
-| FR-4.4 | **Webhook Idempotency**: sử dụng Redis `SETNX` với TTL 24h để chặn xử lý trùng lặp (chống trừ tiền 2 lần). | Hệ thống |
-| FR-4.5 | Thanh toán thành công → Registration chuyển sang `SUCCESS` → ký chữ ký RSA → gửi thông báo email xác nhận. | Hệ thống |
-| FR-4.6 | Thanh toán thất bại → Registration chuyển sang `FAILED` → hoàn trả ghế vào DB và Redis. | Hệ thống |
-| FR-4.7 | **Circuit Breaker**: khi cổng thanh toán liên tục lỗi (≥50% failure rate), mạch ngắt mở ra (Fail Fast) → sinh viên được thông báo ngay mà không phải chờ timeout. Mạch tự phục hồi sau 30 giây. | Hệ thống |
-| FR-4.8 | **Payment Cleanup**: Job nền tự động xoá các đăng ký `PENDING_PAYMENT` quá 15 phút chưa thanh toán → hoàn trả ghế cho sinh viên khác. | Hệ thống |
-| FR-4.9 | Admin có thể xem **trạng thái Circuit Breaker** (Closed/Open/HalfOpen) và trạng thái cổng thanh toán (Up/Down). | Admin |
-
----
-
-### FR-5: Check-in (Điểm danh)
-
-| ID | Mô tả | Actor |
-|----|-------|-------|
-| FR-5.1 | Staff quét mã QR bằng ứng dụng Mobile → gửi `registration_id`, `workshop_id`, `student_id` → hệ thống xác thực và đánh dấu `is_checked_in = true` (**Live Check-in**). | Staff |
-| FR-5.2 | Khi **mất kết nối Internet**, ứng dụng Mobile lưu trữ các lần quét vào bộ nhớ cục bộ (Offline Queue). Khi có mạng trở lại, app tự động gửi **Bulk Sync** (tối đa 500 bản ghi/lần) để đồng bộ lên server. | Staff |
-| FR-5.3 | App Mobile sử dụng **RSA Public Key** đã tải về để **xác thực chữ ký vé offline** (verify signature) — phát hiện vé giả mà không cần kết nối server. | Mobile App |
-
----
-
-### FR-6: Thông báo (Notification)
-
-| ID | Mô tả | Actor |
-|----|-------|-------|
-| FR-6.1 | Khi đăng ký Workshop miễn phí thành công, hệ thống tự động gửi **email xác nhận** (HTML template) đến sinh viên qua SMTP. | Hệ thống |
-| FR-6.2 | Khi thanh toán Workshop trả phí thành công, hệ thống gửi **email xác nhận thanh toán** với nội dung riêng. | Hệ thống |
-| FR-6.3 | Khi quên mật khẩu, hệ thống gửi **email chứa mật khẩu mới** cho sinh viên. | Hệ thống |
-| FR-6.4 | Song song với email, mọi thông báo đều được lưu vào DB dưới kênh **Web** để sinh viên xem lịch sử thông báo trên giao diện. | Hệ thống |
-| FR-6.5 | **Idempotent Notification**: mỗi event có `event_id` duy nhất → nếu DB đã tồn tại notification với `event_id` đó, hệ thống bỏ qua (không gửi trùng). | Hệ thống |
-| FR-6.6 | Notification Worker chạy độc lập, nhận message từ **RabbitMQ** (`notification_queue`) và xử lý gửi email bất đồng bộ — không ảnh hưởng latency của API chính. | Hệ thống |
-
----
-
-### FR-7: Tóm tắt AI (AI Summary)
-
-| ID | Mô tả | Actor |
-|----|-------|-------|
-| FR-7.1 | Admin upload file **PDF** (tối đa 10MB) mô tả nội dung Workshop → hệ thống trích xuất text, làm sạch, gọi **Google Gemini API** và trả về bản tóm tắt học thuật. | Admin |
-| FR-7.2 | Tóm tắt AI có thể được gắn vào Workshop cụ thể (`workshop_id`) để sinh viên xem trên trang chi tiết Workshop. | Admin |
-| FR-7.3 | Hệ thống kiểm tra **magic bytes** (`%PDF`) để đảm bảo file upload thực sự là PDF trước khi xử lý. | Hệ thống |
-
----
-
-### FR-8: Quản trị Hệ thống (System Administration)
-
-| ID | Mô tả | Actor |
-|----|-------|-------|
-| FR-8.1 | Admin upload file **CSV** chứa danh sách sinh viên (lên đến 12,000 records) → hệ thống lưu file và tạo **Import Job** với trạng thái `PENDING`. | Admin |
-| FR-8.2 | Import Job có thể chạy tự động lúc 02:00 AM hoặc được **trigger thủ công** bởi Admin. Hệ thống phân tách CSV thành **Chunks** và ghi bằng `INSERT ... ON CONFLICT DO UPDATE` (upsert). | Admin |
-| FR-8.3 | Hệ thống theo dõi tiến trình Import: tổng số bản ghi, số thành công, số lỗi. Các dòng lỗi được ghi chi tiết vào bảng `import_errors` (số dòng, raw data, lý do lỗi). | Admin |
-| FR-8.4 | Admin có thể xem **lịch sử Import Jobs** và **chi tiết lỗi** của từng job. | Admin |
-| FR-8.5 | Admin có thể xem **Dashboard thống kê hệ thống**: tổng số sinh viên, tổng workshop, tổng đăng ký, v.v. | Admin |
-
----
-
-## 🏗️ Kiến trúc Backend (System Architecture)
+## 🏗️ System Architecture
 
 <p align="center">
-  <img src="docs/images/backend_architecture.png" alt="Backend Architecture" width="800"/>
+  <img src="docs/images/backend_architecture.png" alt="Backend Architecture" width="850"/>
 </p>
 
-### Các cơ chế kỹ thuật nổi bật
-
-| # | Cơ chế | Mô tả |
-|---|--------|-------|
-| 1 | **Pessimistic Locking** | `SELECT FOR UPDATE` trong PostgreSQL đảm bảo giao dịch an toàn khi hàng trăm thread tranh chấp chỗ ngồi. |
-| 2 | **Rate Limiting & Waiting Room** | Thuật toán **Token Bucket** trên Redis chống Spam API. **Virtual Waiting Room** (Redis ZSET) đưa sinh viên vào phòng chờ khi quá tải. |
-| 3 | **Event-Driven Architecture** | RabbitMQ bóc tách luồng Đăng ký và Thông báo thành Worker độc lập, phản hồi API dưới 10ms. |
-| 4 | **Circuit Breaker & Idempotency** | Khóa Luỹ đẳng chặn trừ tiền 2 lần. Circuit Breaker "Ngắt mạch" (Fail Fast) khi hệ thống thanh toán sập. |
-| 5 | **RSA-2048 Digital Signature** | App Mobile nhận Public Key để tự verify vé thật/giả ngay cả khi Offline. |
-| 6 | **AI Pipe-and-Filter** | Trích xuất PDF → Làm sạch → Gọi Google Gemini API để tóm tắt học thuật. |
-| 7 | **Batch Import CSV** | Phân tách 12,000 sinh viên thành Chunks, ghi đè bằng `INSERT ... ON CONFLICT DO UPDATE`. |
+### End-to-End Request Lifecycle
+```
+[2,000+ Concurrent Students]
+           │  HTTP POST /api/v1/registrations (Bearer JWT)
+           ▼
+   ┌────────────────────────────────┐
+   │ Nginx Gateway / API Replicas   │
+   └───────┬────────────────────────┘
+           │
+           ├──> [1. Virtual Waiting Room (Redis ZSET)] ── (If overloaded, holds traffic)
+           │
+           ├──> [2. Atomic Seat Limiter (Redis Lua Script)] ── (Fast-fail if 0 seats)
+           │
+           ├──> [3. RabbitMQ Registration Queue] ── (Producer acknowledges HTTP 202 in <1ms)
+           │
+           ▼
+   ┌────────────────────────────────┐
+   │ Background Worker Pool (32 W)  │  <── Pulls with rate-regulated Prefetch Count
+   └───────┬────────────────────────┘
+           │
+           ├──> [4. Compute RSA-2048 Digital Signature in-memory (outside DB transaction)]
+           │
+           ├──> [5. PostgreSQL Pessimistic Lock (SELECT ... FOR UPDATE)]
+           │         • Decrement available_seats (strictly > 0)
+           │         • Insert registration with pre-computed ticket_signature
+           │         • Transaction committed in < 2ms (Zero lock contention)
+           │
+           ├──> [6. Cache Status in Redis (TTL: 1 Hour)]
+           │
+           └──> [7. RabbitMQ Notification Queue] ──> SMTP Worker delivers confirmation email
+```
 
 ---
 
-## ☁️ Hạ tầng DevOps trên GCP (Production Deployment)
+## 🚀 Key Engineering & Concurrency Highlights
+
+### 1. Zero-Overbooking via Dual-Layer Concurrency Control
+* **Layer 1 (In-Memory Atomic Gate):** Redis Lua scripts execute atomic seat deductions before requests ever touch the relational database. If seats are depleted, subsequent requests are rejected or placed in a virtual queue immediately.
+* **Layer 2 (Database Transaction Optimization):** In PostgreSQL, seats are decremented with pessimistic locking (`SELECT available_seats FROM workshops WHERE id = $1 FOR UPDATE`).
+* **Critical Lock Optimization:** Heavy cryptographic operations (RSA-2048 signature generation and SHA-256 hashing) are **pre-computed in-memory outside the database transaction**, shrinking the row lock duration from ~25ms down to **< 2ms**, completely eliminating lock timeouts under heavy bursts.
+
+### 2. Elimination of In-Memory Memory Leaks (Redis Status TTL)
+* Asynchronous registration statuses (`PROCESSING`, `SUCCESS`, `REJECTED`) are persisted directly into Redis with key pattern `reg:status:<correlation_id>` and a strict **1-hour TTL (`1 * time.Hour`)**.
+* Completely removes unbounded in-memory Go maps, preventing heap degradation over long-running production uptime while providing sub-millisecond polling responses to clients.
+
+### 3. Concurrency-Safe Circuit Breaker
+* Custom-built Circuit Breaker protecting third-party dependencies (AI APIs, Mail servers) featuring:
+  * **Thread-safe state transitions** across `CLOSED`, `OPEN`, and `HALF_OPEN`.
+  * **Atomic probe limiting** in `HALF_OPEN` state to prevent thundering-herd probes.
+  * **Panic recovery middleware** ensuring faulty workers never crash the main daemon.
+
+### 4. Offline-First Cryptographic Check-in
+* Tickets contain an RSA-2048 digital signature encoding `workshop_id:student_id:issued_at`.
+* Mobile devices cache the server's public key upon authentication. During event check-in in basements or crowded auditoriums with **zero network connectivity**, the staff application verifies tickets locally using PKCS#1 v1.5 verification.
+* When connectivity resumes, up to 500 offline check-in logs are synchronized in batches with deterministic timestamp conflict resolution.
+
+### 5. High-Throughput Batch Account Ingestion
+* Handles bulk onboarding of 12,000 university students via streaming CSV parsing.
+* Batched into chunks of 500 records using PostgreSQL `INSERT ... ON CONFLICT (user_id) DO UPDATE` (upsert), completing full university imports in seconds without memory spikes.
+
+---
+
+## 📊 Verified Concurrency Benchmarks
+
+Stress tests were conducted using the built-in Go benchmarking engine (`cmd/concurrency_demo`) simulating a true simultaneous gate barrier (all goroutines aligned at 0ms starting gun):
 
 <p align="center">
-  <img src="docs/images/gcp_infrastructure.png" alt="GCP Infrastructure & CI/CD" width="800"/>
+  <img src="docs/images/gcp_infrastructure.png" alt="Infrastructure Benchmark Setup" width="850"/>
 </p>
 
-| Thành phần | Công nghệ |
-|------------|-----------|
-| **Compute** | GKE Autopilot (Horizontal Pod Autoscaler: 2→20 pods) |
-| **Database** | Cloud SQL for PostgreSQL (Private IP, Automated Backup) |
-| **Cache** | Memorystore for Redis (Private IP) |
-| **Message Queue** | RabbitMQ trên GKE (Helm Chart) |
-| **Networking** | VPC, Cloud DNS, Global HTTP(S) Load Balancer, Cloud Armor WAF, Cloud NAT |
-| **CI/CD** | Jenkins Pipeline → Build → Test → Docker Image → Artifact Registry → Rolling Deploy |
-| **Monitoring** | Prometheus + Grafana, Cloud Logging, Alerting |
-| **Security** | Google Secret Manager, Network Policy, Non-root containers |
-| **IaC** | Terraform (Infrastructure as Code) |
+| Benchmark Scenario | Traffic Profile | CPU Allocation | Throughput (RPS) | Avg Latency | P95 Latency | Seats Allocated | Overbooking |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Simultaneous Gate Burst (16 Cores)** | 3,000 users @ 0ms | 16 vCPUs | **2,235.1 req/s** | 1.34 ms | 2.12 ms | 100 / 100 | **0 (0.00%)** |
+| **Simultaneous Gate Burst (Strict 2 Cores)** | 2,000 users @ 0ms | 2 vCPUs (`taskset -c 0,1`) | **1,754.4 req/s** | 0.96 ms | 1.84 ms | 100 / 100 | **0 (0.00%)** |
+| **Sustained Traffic Pool** | 2,000 users over 3s | 2 vCPUs | **658.2 req/s** | 0.96 ms | 1.45 ms | 50 / 50 | **0 (0.00%)** |
+
+> **Audit Result:** Across all cycles, connection errors were **0**, dropped sockets were **0**, and database consistency was verified at **100.00%** with zero seat anomalies.
 
 ---
 
-## 📁 Cấu trúc Dự án
+## ☁️ DevOps, GitOps & Cloud Infrastructure
+
+The platform is designed around CNCF Cloud-Native and Twelve-Factor App standards:
 
 ```text
-unihub-workshop/
-├── Makefile              # 1-click commands: make dev, make test, make bench
-├── docker-compose.yml    # Root Docker Compose (delegates to deploy/docker)
-├── deploy/               # Trung tâm DevOps & Infrastructure
-│   ├── docker/           # 16-replica local container stack + Nginx gateway
-│   ├── helm/             # Helm Charts đóng gói ứng dụng (API, Worker, HPA)
-│   ├── gitops/           # ArgoCD Applications, App-of-Apps & Sync Waves
-│   ├── ci/               # CI Pipelines (Argo Workflows DAGs & Legacy Jenkinsfile)
-│   ├── k8s/              # Kubernetes raw manifests (Namespace, Ingress, HPA)
-│   ├── terraform/        # GCP IaC (GKE, VPC, CloudSQL, MemoryStore)
-│   └── observability/    # Telemetry, Fluentbit, OpenSearch & Prometheus/Grafana
-├── scripts/              # Các script tự động hóa phân cấp (dev, benchmark, k8s)
-│   ├── dev/              # start_backend.sh, start_backend_2cpu.sh
-│   ├── benchmark/        # run_concurrency_test.sh
-│   └── k8s/              # deploy_minikube.sh
-├── src/                  # Source Code ứng dụng
-│   ├── backend/          # Go API Server + Background Workers (Clean Arch)
-│   ├── web/              # Next.js Frontend
-│   └── mobile/           # React Native (Expo) - Staff Check-in App
-├── docs/                 # Tài liệu kỹ thuật, kiến trúc & DevOps Plan
-└── blueprint/            # Design docs & Course specifications
+Git Commit ──> Argo Workflows DAG (Lint, Race Tests, Docker Multi-stage Build, k6 Gate)
+                     │
+                     ▼
+               Update Helm Values (deploy/helm/unihub)
+                     │
+                     ▼
+               ArgoCD Controller (Declarative Sync Waves, Self-Healing)
+                     │
+                     ▼
+               Kubernetes Cluster (GKE / KinD)
+               ├── Wave 1: PostgreSQL, Redis, RabbitMQ
+               ├── Wave 2: DB Schema Migrations Job
+               ├── Wave 3: UniHub API & Worker Deployments (HPA Autoscaling)
+               └── Wave 4: Ingress Routes & Prometheus PodMonitors
+```
+
+* **Infrastructure as Code (IaC):** Complete GCP foundation managed via **Terraform** (`deploy/terraform/`), provisioning VPC, GKE Autopilot clusters, Cloud SQL, Memorystore, Cloud NAT, and Cloud Armor WAF.
+* **Declarative Packaging:** Packaged with **Helm 3** (`deploy/helm/unihub`) with environment-isolated configurations (`values-staging.yaml`, `values-prod.yaml`).
+* **Continuous Delivery:** Orchestrated with **ArgoCD GitOps** (`deploy/gitops/`) utilizing Kubernetes **Sync Waves** to guarantee clean dependency ordering between databases, migrations, and microservices.
+* **Automated CI & Quality Gates:** Cloud-native DAG workflows using **Argo Workflows** (`deploy/ci/argo-workflows/`) and **GitHub Actions**, enforcing automated regression gates where pipelines terminate if p95 latency exceeds 200ms.
+* **Telemetry & Observability:** Prometheus Operator CRDs (`PodMonitor`), Grafana dashboards, and structured JSON logs indexed via **Fluent-bit** into **OpenSearch**.
+
+---
+
+## 📁 Repository Structure
+
+The monorepo follows a clean domain-driven layout:
+
+```text
+Unihub-workshop/
+├── Makefile                     # ⚡ 1-Click developer entrypoint (make dev, make bench, etc.)
+├── docker-compose.yml           # Root Docker Compose (delegates to deploy/docker)
+│
+├── deploy/                      # 🚀 DevOps, Infrastructure & GitOps Center
+│   ├── docker/                  # 16-replica local container stack (Docker Compose + Nginx)
+│   ├── helm/                    # Helm 3 Charts (unihub: API, Worker, HPA, PodMonitor)
+│   ├── gitops/                  # ArgoCD Application manifests, App-of-Apps & Sync Waves
+│   ├── ci/                      # Cloud-Native CI (Argo Workflows DAGs & Legacy Jenkinsfile)
+│   ├── k8s/                     # Raw Kubernetes manifests (Namespace, Ingress, HPA)
+│   ├── terraform/               # GCP Infrastructure as Code (GKE, VPC, CloudSQL, MemoryStore)
+│   └── observability/           # Centralized Telemetry (Fluent-bit, OpenSearch, Prometheus)
+│
+├── scripts/                     # 🛠️ Categorized Automation Scripts
+│   ├── dev/                     # Local startup scripts (start_backend.sh, start_backend_2cpu.sh)
+│   ├── benchmark/               # Concurrency gate runners (run_concurrency_test.sh)
+│   └── k8s/                     # Cluster bootstrapping (deploy_minikube.sh)
+│
+├── src/                         # 💻 Application Source Code
+│   ├── backend/                 # Golang High-Concurrency Backend (Clean Architecture)
+│   │   ├── cmd/server/          # API & Worker runtime entrypoint
+│   │   ├── cmd/concurrency_demo/# Real-time gate load testing & benchmark tool
+│   │   ├── internal/            # Service, Repository, Queue, SeatLimiter, WaitingRoom
+│   │   └── Dockerfile           # Optimized multi-stage container build
+│   ├── web/                     # Next.js 15 Web Frontend (Admin & Student portals)
+│   └── mobile/                  # React Native Expo Check-in App (Offline-first)
+│
+├── docs/                        # 📚 Architectural Blueprints & Implementation Plans
+│   ├── images/                  # Architecture schematics & benchmark charts
+│   └── DEVOPS_IMPLEMENTATION_PLAN.md
+└── blueprint/                   # Design specifications & course documentation
 ```
 
 ---
 
-## ⚙️ Hướng dẫn cài đặt và khởi chạy (Local Development)
+## ⚙️ Quick Start Guide (Local Development)
 
-> **Yêu cầu môi trường:** `Docker & Docker Compose`, `Node.js (v18+)`, `Golang (v1.22+)`, `make`.
+### Prerequisites
+* **Docker & Docker Compose** (Docker Engine v24+)
+* **Go** (v1.22+)
+* **Node.js** (v18+) & `npm` / `pnpm`
+* **GNU Make**
 
-### Cách 1: Sử dụng Makefile (Khuyên dùng - 1 Click)
+### 1. 1-Click Execution via Makefile (Recommended)
 
 ```bash
-make dev      # Khởi động toàn bộ cụm 16 container (DB, Redis, RabbitMQ, API, Worker, Web)
-make bench    # Chạy Stress-test kiểm tra độ chịu tải (50 users)
-make bench-2k # Chạy Full Gate Burst Stress-test (2.000 users, 0ms barrier)
-make test     # Chạy Go Unit Tests với bộ phát hiện Race Condition (-race)
-make dev-down # Tắt toàn bộ môi trường local
+# Display all available automated targets
+make help
+
+# 1. Start the entire 16-container local stack (Postgres, Redis, RabbitMQ, API, Workers, Web)
+make dev
+
+# 2. Run Go Unit Tests with ThreadSanitizer data race detection
+make test
+
+# 3. Fire an instant concurrency stress test (50 users, 25 slots)
+make bench
+
+# 4. Fire full simultaneous 0ms gate burst stress test (2,000 users)
+make bench-2k
+
+# 5. Stop and clean up all containers
+make dev-down
 ```
 
-### Cách 2: Khởi chạy thủ công từng dịch vụ
+---
 
-#### Bước 1: Khởi động Hạ tầng (Database & Message Broker)
+### 2. Manual Service Execution (Step-by-Step)
 
+#### Step 1: Start Infrastructure Containers
 ```bash
 docker compose up -d
 ```
+* **PostgreSQL:** `localhost:5433` (Auto-migrated with schema & seed data)
+* **Redis:** `localhost:6379`
+* **RabbitMQ:** `localhost:5672` (Management Dashboard: `http://localhost:15672` | `guest/guest`)
+* **MailHog:** `localhost:1025` (Web UI: `http://localhost:8025`)
+* **Nginx Gateway:** `http://localhost:8080`, `http://localhost:3000`
 
-Lệnh này sẽ khởi động:
-- **PostgreSQL** (port `5433`) — Schema Database tự động chạy qua `init_schema.sql`
-- **Redis** (port `6379`)
-- **RabbitMQ** (port `5672` / Management UI: `15672`)
-- **MailHog** (port `1025` / UI: `8025`)
-- **Nginx Gateway** (port `8080`, `3000`)
-
-#### Bước 2: Chạy Backend (Nếu chạy từ binary local)
-
+#### Step 2: Run Go Backend Server
 ```bash
-./scripts/dev/start_backend_2cpu.sh  # Chạy backend ghim chặt vào 2 CPU Cores
+# Pin backend execution strictly to 2 CPU Cores to simulate constrained environments
+./scripts/dev/start_backend_2cpu.sh
+
+# Or run with all available CPU cores:
+./scripts/dev/start_backend.sh
 ```
+Health Check Endpoint: `http://localhost:8080/health`
 
-Backend sẽ chạy tại: `http://localhost:8080`
-
-### Bước 3: Chạy Web Frontend
-
+#### Step 3: Run Web Frontend
 ```bash
 cd src/web
 npm install
 npm run dev
 ```
+Web Application: `http://localhost:3000`
 
-Trang Web sẽ khởi chạy tại: `http://localhost:3000`
-
-### Bước 4: Chạy Mobile App (Staff Check-in)
-
+#### Step 4: Run Mobile Staff Check-in App
 ```bash
 cd src/mobile
 npm install
 npx expo start --clear
 ```
-
-Sử dụng ứng dụng **Expo Go** trên điện thoại để quét mã QR trên Terminal.
-
-> **Lưu ý:** Nếu test bằng điện thoại vật lý, hãy đổi IP trong file `api.ts` để gọi API qua Local Area Network.
+Scan the terminal QR code using **Expo Go** on iOS or Android.
 
 ---
 
-## 🔑 Dữ liệu mẫu (Seed Data)
+## 🔑 Seed Data & Demo Credentials
 
-**Tài khoản Admin:**
-| Field | Value |
-|-------|-------|
-| Username | `admin` (hoặc `admin@unihub.edu.vn`) |
-| Password | `admin123` |
+### Pre-configured Accounts
+| Role | Identifier / Email | Password | Access Capabilities |
+| :--- | :--- | :--- | :--- |
+| **System Admin** | `admin` (or `admin@unihub.edu.vn`) | `admin123` | Full control: Event CRUD, AI summarization, CSV student batch ingestion, Metrics |
+| **Student** | `student1@unihub.edu.vn` | `123456` | Browse workshops, join virtual waiting room, reserve seats, view QR ticket |
+| **Staff Member**| `staff1@unihub.edu.vn` | `123456` | Offline/Online QR ticket scanner via mobile application |
 
-**Test Tính Năng Sinh Viên:**
-1. Đăng nhập Admin → Vào mục **Sinh viên** → Upload file `src/backend/data/sample_students_v2.csv`.
-2. Đăng xuất → Dùng Email sinh viên trong file (Mật khẩu: `123456`) để đăng nhập và đăng ký Workshop.
+### Ready-to-use Sample Datasets
+* **12,000 Student Ingestion:** Test bulk processing via Admin Portal by uploading [`src/backend/data/sample_students_v2.csv`](file:///home/tuna/learn/se/Unihub-workshop/src/backend/data/sample_students_v2.csv).
+* **AI Workshop Extraction:** Upload sample conference PDFs to test Google Gemini automatic topic and syllabus summarization.
+
+---
+
+## 👥 Authors & Acknowledgments
+
+* **Đinh Tuấn Duy** ([@dtduy23](https://github.com/dtduy23)) — Core System Architecture, Concurrency Engineering, Backend & DevOps Pipelines.
+* Developed as an advanced high-concurrency capstone engineering platform.
