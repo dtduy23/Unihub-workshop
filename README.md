@@ -178,35 +178,51 @@
 
 ## 📁 Cấu trúc Dự án
 
-```
+```text
 unihub-workshop/
-├── src/
-│   ├── backend/          # Go API Server + Background Workers
-│   │   ├── cmd/server/   # Entrypoint (main.go)
-│   │   ├── internal/     # Handler, Service, Repository, Middleware, Config
-│   │   ├── migrations/   # Database schema & seed data
-│   │   └── Dockerfile
-│   ├── web/              # Next.js Frontend (Admin + Student)
+├── Makefile              # 1-click commands: make dev, make test, make bench
+├── docker-compose.yml    # Root Docker Compose (delegates to deploy/docker)
+├── deploy/               # Trung tâm DevOps & Infrastructure
+│   ├── docker/           # 16-replica local container stack + Nginx gateway
+│   ├── helm/             # Helm Charts đóng gói ứng dụng (API, Worker, HPA)
+│   ├── gitops/           # ArgoCD Applications, App-of-Apps & Sync Waves
+│   ├── ci/               # CI Pipelines (Argo Workflows DAGs & Legacy Jenkinsfile)
+│   ├── k8s/              # Kubernetes raw manifests (Namespace, Ingress, HPA)
+│   ├── terraform/        # GCP IaC (GKE, VPC, CloudSQL, MemoryStore)
+│   └── observability/    # Telemetry, Fluentbit, OpenSearch & Prometheus/Grafana
+├── scripts/              # Các script tự động hóa phân cấp (dev, benchmark, k8s)
+│   ├── dev/              # start_backend.sh, start_backend_2cpu.sh
+│   ├── benchmark/        # run_concurrency_test.sh
+│   └── k8s/              # deploy_minikube.sh
+├── src/                  # Source Code ứng dụng
+│   ├── backend/          # Go API Server + Background Workers (Clean Arch)
+│   ├── web/              # Next.js Frontend
 │   └── mobile/           # React Native (Expo) - Staff Check-in App
-├── deploy/               # DevOps & Infrastructure
-│   ├── terraform/        # GCP Infrastructure as Code
-│   ├── k8s/              # Kubernetes manifests
-│   ├── jenkins/          # CI/CD pipeline (Jenkinsfile)
-│   └── monitoring/       # Grafana + Prometheus config
-├── docs/images/          # Ảnh minh hoạ cho README
-└── blueprint/            # Design docs & specs
+├── docs/                 # Tài liệu kỹ thuật, kiến trúc & DevOps Plan
+└── blueprint/            # Design docs & Course specifications
 ```
 
 ---
 
 ## ⚙️ Hướng dẫn cài đặt và khởi chạy (Local Development)
 
-> **Yêu cầu môi trường:** `Docker & Docker Compose`, `Node.js (v18+)`, `Golang (v1.22+)`.
+> **Yêu cầu môi trường:** `Docker & Docker Compose`, `Node.js (v18+)`, `Golang (v1.22+)`, `make`.
 
-### Bước 1: Khởi động Hạ tầng (Database & Message Broker)
+### Cách 1: Sử dụng Makefile (Khuyên dùng - 1 Click)
 
 ```bash
-cd src/backend
+make dev      # Khởi động toàn bộ cụm 16 container (DB, Redis, RabbitMQ, API, Worker, Web)
+make bench    # Chạy Stress-test kiểm tra độ chịu tải (50 users)
+make bench-2k # Chạy Full Gate Burst Stress-test (2.000 users, 0ms barrier)
+make test     # Chạy Go Unit Tests với bộ phát hiện Race Condition (-race)
+make dev-down # Tắt toàn bộ môi trường local
+```
+
+### Cách 2: Khởi chạy thủ công từng dịch vụ
+
+#### Bước 1: Khởi động Hạ tầng (Database & Message Broker)
+
+```bash
 docker compose up -d
 ```
 
@@ -214,13 +230,13 @@ Lệnh này sẽ khởi động:
 - **PostgreSQL** (port `5433`) — Schema Database tự động chạy qua `init_schema.sql`
 - **Redis** (port `6379`)
 - **RabbitMQ** (port `5672` / Management UI: `15672`)
+- **MailHog** (port `1025` / UI: `8025`)
+- **Nginx Gateway** (port `8080`, `3000`)
 
-### Bước 2: Chạy Backend
+#### Bước 2: Chạy Backend (Nếu chạy từ binary local)
 
 ```bash
-cp .env.example .env    # Tạo file cấu hình
-go mod tidy
-go run cmd/server/main.go
+./scripts/dev/start_backend_2cpu.sh  # Chạy backend ghim chặt vào 2 CPU Cores
 ```
 
 Backend sẽ chạy tại: `http://localhost:8080`

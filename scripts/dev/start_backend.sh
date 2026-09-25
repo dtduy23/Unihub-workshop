@@ -1,15 +1,15 @@
 #!/bin/bash
 set -e
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$DIR"
 
 # 1. Build server if needed
 echo "[BUILD] Building UniHub Backend binary..."
 (cd src/backend && go build -o bin/server ./cmd/server)
 
-# 2. Export environment variables for 2-CPU execution
-export GOMAXPROCS=2
+# 2. Export environment variables for FULL CPU execution
+unset GOMAXPROCS
 export APP_MODE=all
 export DB_HOST=localhost
 export DB_PORT=5433
@@ -24,6 +24,6 @@ export AUTH_SECRET=default-secret
 export SMTP_HOST=localhost
 export SMTP_PORT=1025
 
-echo "[START] Launching backend strictly pinned to CPU 0 and 1 (taskset -c 0,1, GOMAXPROCS=2)..."
-exec taskset -c 0,1 ./src/backend/bin/server
+echo "[START] Launching backend with ALL $(nproc) CPU cores..."
+exec ./src/backend/bin/server
 
