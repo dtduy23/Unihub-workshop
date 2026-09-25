@@ -136,3 +136,7 @@ private.pem
 # ========================
 deploy/k8s/secret.yaml
 src/web/.env.local
+test.md
+docs/DEVOPS_IMPLEMENTATION_PLAN.md
+docs/gcp-resources-inventory.md
+gcp-resources-inventory.md
