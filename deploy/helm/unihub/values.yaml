@@ -1,0 +1,232 @@
+# ==============================================================================
+# UniHub Platform — Helm Default Values (Development / Local Minikube)
+# ==============================================================================
+
+global:
+  environment: development
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Backend API Service ---
+api:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: unihub-backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: NodePort
+    port: 80
+    targetPort: 8080
+    nodePort: 30080
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 16
+    targetCPUUtilizationPercentage: 70
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      percent: 100
+      periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 3600
+      percent: 10
+      periodSeconds: 60
+  serviceAccount:
+    create: true
+    name: "unihub-api"
+    annotations: {}
+  probes:
+    readiness:
+      path: /health
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    liveness:
+      path: /health
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+  topologySpreadConstraints:
+    enabled: true
+    maxSkew: 3
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+
+# --- Background Worker Service ---
+worker:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: unihub-backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  serviceAccount:
+    create: true
+    name: "unihub-worker"
+    annotations: {}
+
+# --- Frontend Web (Next.js) ---
+web:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: unihub-web
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  probes:
+    readiness:
+      path: /login
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 3
+    liveness:
+      path: /login
+      initialDelaySeconds: 10
+      periodSeconds: 30
+      timeoutSeconds: 5
+  env:
+    NEXT_PUBLIC_API_URL: "http://unihub-api-service"
+
+# --- Ingress ---
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: ""
+      paths:
+        - path: /api
+          pathType: Prefix
+          serviceName: unihub-api-service
+          servicePort: 80
+        - path: /health
+          pathType: Exact
+          serviceName: unihub-api-service
+          servicePort: 80
+        - path: /
+          pathType: Prefix
+          serviceName: unihub-web-service
+          servicePort: 80
+  tls: []
+
+# --- PodMonitoring (Prometheus Operator - optional, annotations used by default) ---
+podMonitor:
+  enabled: false
+  interval: 15s
+  path: /metrics
+
+# --- Application Configuration (ConfigMap) ---
+config:
+  dbHost: "postgres"
+  dbPort: "5432"
+  dbName: "unihub_workshop"
+  dbUser: "unihub"
+  dbSslMode: "disable"
+  redisAddr: "redis:6379"
+  redisPassword: ""
+  redisDb: "0"
+  rabbitmqUrl: "amqp://unihub:unihub-rmq-pass@rabbitmq:5672/"
+  serverPort: "8080"
+  corsOrigins: "http://localhost:3000,http://127.0.0.1:3000"
+  smtpHost: "mailhog"
+  smtpPort: "1025"
+  smtpFrom: "noreply@unihub.edu.vn"
+  geminiModel: "gemini-1.5-flash"
+  aiTemperature: "0.4"
+  aiMaxTokens: "16384"
+  csvImportDir: "./data/imports"
+  csvArchiveDir: "./data/archive"
+  rateLimitCapacity: "5000"
+  rateLimitRefillRate: "1000"
+  rateLimitTTL: "300"
+  runSeed: "true"
+  paymentGatewayUrl: "http://unihub-api-service/mock/payment"
+
+# --- Application Secrets (unihub-secret) ---
+secrets:
+  dbPassword: "unihub_pass"
+  authSecret: "unihub-jwt-super-secret-key-32bytes-min!"
+  rsaPrivateKey: ""
+  geminiApiKey: ""
+  smtpUser: ""
+  smtpPass: ""
+
+# --- In-Cluster Infrastructure (Dev/Local minikube only) ---
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  database: "unihub_workshop"
+  user: "unihub"
+  password: "unihub_pass"
+  port: 5432
+  resources:
+    requests:
+      memory: "256Mi"
+    limits:
+      memory: "512Mi"
+
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  port: 6379
+  resources:
+    requests:
+      memory: "64Mi"
+    limits:
+      memory: "256Mi"
+
+rabbitmq:
+  enabled: true
+  image:
+    repository: rabbitmq
+    tag: "3-management-alpine"
+    pullPolicy: IfNotPresent
+  user: "unihub"
+  password: "unihub-rmq-pass"
+  ports:
+    amqp: 5672
+    management: 15672
+  storage: 8Gi
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
