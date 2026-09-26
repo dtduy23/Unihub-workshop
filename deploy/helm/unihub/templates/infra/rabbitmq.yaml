@@ -1,0 +1,76 @@
+{{- if .Values.rabbitmq.enabled -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  labels:
+    app: rabbitmq
+    {{- include "unihub.labels" . | nindent 4 }}
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: "{{ .Values.rabbitmq.image.repository }}:{{ .Values.rabbitmq.image.tag }}"
+          imagePullPolicy: {{ .Values.rabbitmq.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.rabbitmq.ports.amqp }}
+              name: amqp
+            - containerPort: {{ .Values.rabbitmq.ports.management }}
+              name: management
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: {{ .Values.rabbitmq.user | quote }}
+            - name: RABBITMQ_DEFAULT_PASS
+              value: {{ .Values.rabbitmq.password | quote }}
+          resources:
+            {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.rabbitmq.ports.amqp }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.rabbitmq.ports.amqp }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.rabbitmq.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  labels:
+    app: rabbitmq
+    {{- include "unihub.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: {{ .Values.rabbitmq.ports.amqp }}
+      targetPort: {{ .Values.rabbitmq.ports.amqp }}
+    - name: management
+      port: {{ .Values.rabbitmq.ports.management }}
+      targetPort: {{ .Values.rabbitmq.ports.management }}
+{{- end }}

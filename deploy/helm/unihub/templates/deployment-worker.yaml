@@ -1,0 +1,34 @@
+{{- if .Values.worker.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unihub-worker
+  labels:
+    {{- include "unihub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "unihub.worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "unihub.worker.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.worker.serviceAccount.name | default "unihub-worker" }}
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          env:
+            - name: APP_MODE
+              value: "worker"
+          envFrom:
+            - configMapRef:
+                name: unihub-config
+            - secretRef:
+                name: unihub-secret
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+{{- end }}

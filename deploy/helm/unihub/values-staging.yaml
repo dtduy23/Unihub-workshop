@@ -1,0 +1,59 @@
+# ==============================================================================
+# UniHub Platform — Helm Staging Values
+# ==============================================================================
+
+global:
+  environment: staging
+
+api:
+  replicaCount: 2
+  image:
+    tag: "staging"
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    nodePort: null
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 6
+
+worker:
+  replicaCount: 1
+  image:
+    tag: "staging"
+    pullPolicy: Always
+
+web:
+  replicaCount: 1
+  image:
+    tag: "staging"
+    pullPolicy: Always
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+  hosts:
+    - host: "staging.unihub.dev"
+      paths:
+        - path: /api
+          pathType: Prefix
+          serviceName: unihub-api-service
+          servicePort: 80
+        - path: /
+          pathType: Prefix
+          serviceName: unihub-web-service
+          servicePort: 80
+  tls:
+    - secretName: unihub-staging-tls
+      hosts:
+        - staging.unihub.dev
+
+# Staging uses managed services or in-cluster staging DB
+postgres:
+  enabled: true
+redis:
+  enabled: true
+rabbitmq:
+  enabled: true
