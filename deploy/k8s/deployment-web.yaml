@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
       - name: web
-        image: unihub-web:localhost
+        image: duyd4010/unihub-web:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000

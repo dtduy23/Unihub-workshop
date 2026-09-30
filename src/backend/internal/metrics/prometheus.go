@@ -90,4 +90,23 @@ var (
 		},
 		[]string{"queue", "status"},
 	)
+
+	// --- Presence & Pre-Registration Autoscaling Metrics ---
+
+	// ActiveOnlineUsers tracks total unique active users/IPs across the platform
+	ActiveOnlineUsers = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "unihub_active_online_users",
+			Help: "Estimated number of unique active visitors/IPs online within sliding time window (via Redis HyperLogLog).",
+		},
+	)
+
+	// WorkshopActiveUsers tracks unique active visitors/IPs viewing or waiting for a specific workshop
+	WorkshopActiveUsers = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "unihub_workshop_active_users",
+			Help: "Estimated number of unique active visitors/IPs viewing or waiting for a specific workshop.",
+		},
+		[]string{"workshop_id"},
+	)
 )

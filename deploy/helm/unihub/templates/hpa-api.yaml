@@ -20,17 +20,36 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }}
+    {{- if and .Values.api.autoscaling.presence .Values.api.autoscaling.presence.enabled }}
+    - type: External
+      external:
+        metric:
+          name: {{ .Values.api.autoscaling.presence.metricName | default "unihub_active_online_users" }}
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.api.autoscaling.presence.targetActiveUsersPerPod | default 150 }}
+    {{- end }}
   behavior:
     scaleUp:
       stabilizationWindowSeconds: {{ .Values.api.autoscaling.scaleUp.stabilizationWindowSeconds }}
+      selectPolicy: {{ .Values.api.autoscaling.scaleUp.selectPolicy | default "Max" }}
       policies:
+        {{- if .Values.api.autoscaling.scaleUp.policies }}
+        {{- toYaml .Values.api.autoscaling.scaleUp.policies | nindent 8 }}
+        {{- else }}
         - type: Percent
-          value: {{ .Values.api.autoscaling.scaleUp.percent }}
-          periodSeconds: {{ .Values.api.autoscaling.scaleUp.periodSeconds }}
+          value: {{ .Values.api.autoscaling.scaleUp.percent | default 100 }}
+          periodSeconds: {{ .Values.api.autoscaling.scaleUp.periodSeconds | default 30 }}
+        {{- end }}
     scaleDown:
       stabilizationWindowSeconds: {{ .Values.api.autoscaling.scaleDown.stabilizationWindowSeconds }}
+      selectPolicy: {{ .Values.api.autoscaling.scaleDown.selectPolicy | default "Min" }}
       policies:
+        {{- if .Values.api.autoscaling.scaleDown.policies }}
+        {{- toYaml .Values.api.autoscaling.scaleDown.policies | nindent 8 }}
+        {{- else }}
         - type: Percent
-          value: {{ .Values.api.autoscaling.scaleDown.percent }}
-          periodSeconds: {{ .Values.api.autoscaling.scaleDown.periodSeconds }}
+          value: {{ .Values.api.autoscaling.scaleDown.percent | default 10 }}
+          periodSeconds: {{ .Values.api.autoscaling.scaleDown.periodSeconds | default 60 }}
+        {{- end }}
 {{- end }}

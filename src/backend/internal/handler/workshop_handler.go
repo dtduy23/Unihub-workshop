@@ -5,15 +5,17 @@ import (
 	"net/http"
 
 	"unihub-workshop/internal/model"
+	"unihub-workshop/internal/presence"
 	"unihub-workshop/internal/service"
 )
 
 type WorkshopHandler struct {
 	workshopService *service.WorkshopService
+	presenceTracker *presence.PresenceTracker
 }
 
-func NewWorkshopHandler(ws *service.WorkshopService) *WorkshopHandler {
-	return &WorkshopHandler{workshopService: ws}
+func NewWorkshopHandler(ws *service.WorkshopService, pt *presence.PresenceTracker) *WorkshopHandler {
+	return &WorkshopHandler{workshopService: ws, presenceTracker: pt}
 }
 
 func (h *WorkshopHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -72,4 +74,19 @@ func (h *WorkshopHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, model.APIResponse{Success: true, Message: "Workshop cancelled"})
+}
+
+func (h *WorkshopHandler) GetPresence(w http.ResponseWriter, r *http.Request) {
+	id := getURLParam(r, "id")
+	count := int64(0)
+	if h.presenceTracker != nil {
+		count, _ = h.presenceTracker.GetWorkshopActiveUsers(r.Context(), id)
+	}
+	writeJSON(w, http.StatusOK, model.APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"workshop_id":  id,
+			"active_users": count,
+		},
+	})
 }

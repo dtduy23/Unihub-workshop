@@ -13,7 +13,7 @@ api:
   enabled: true
   replicaCount: 2
   image:
-    repository: unihub-backend
+    repository: duyd4010/unihub-backend
     tag: "latest"
     pullPolicy: IfNotPresent
   service:
@@ -33,14 +33,27 @@ api:
     minReplicas: 2
     maxReplicas: 16
     targetCPUUtilizationPercentage: 70
+    presence:
+      enabled: true
+      metricName: "unihub_active_online_users"
+      targetActiveUsersPerPod: 150
     scaleUp:
-      stabilizationWindowSeconds: 30
-      percent: 100
-      periodSeconds: 30
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - type: Pods
+          value: 16
+          periodSeconds: 15
+        - type: Percent
+          value: 1000
+          periodSeconds: 15
     scaleDown:
-      stabilizationWindowSeconds: 3600
-      percent: 10
-      periodSeconds: 60
+      stabilizationWindowSeconds: 300
+      selectPolicy: Min
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
   serviceAccount:
     create: true
     name: "unihub-api"
@@ -69,7 +82,7 @@ worker:
   enabled: true
   replicaCount: 1
   image:
-    repository: unihub-backend
+    repository: duyd4010/unihub-backend
     tag: "latest"
     pullPolicy: IfNotPresent
   resources:
@@ -89,7 +102,7 @@ web:
   enabled: true
   replicaCount: 1
   image:
-    repository: unihub-web
+    repository: duyd4010/unihub-web
     tag: "latest"
     pullPolicy: IfNotPresent
   service:
@@ -121,7 +134,12 @@ web:
 ingress:
   enabled: false
   className: "nginx"
-  annotations: {}
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/load-balance: "ewma"
+    # nginx.ingress.kubernetes.io/limit-rps: "100"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
   hosts:
     - host: ""
       paths:
@@ -176,7 +194,35 @@ config:
 secrets:
   dbPassword: "unihub_pass"
   authSecret: "unihub-jwt-super-secret-key-32bytes-min!"
-  rsaPrivateKey: ""
+  rsaPrivateKey: |
+    -----BEGIN PRIVATE KEY-----
+    MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDdP+Yagyc+eGBP
+    kwM/Qcn908Ic1tOEtMiUiUYnsvlsjR4OMPH9PW7yd8cY3iYqiB+IDxEEVCjJ4XLp
+    NxgnVMiyQ1jf33qzLqvRccbp0JedvtGhPvfo3hmtpqnpaafGpdQB4UTWY39LiKT0
+    Q1DFeatNU1hXPdXeKwC/h4X9aGU3/EAtR0uQ3mrhEnF+wbvKl6vW+xcmiIXRjFei
+    yZY64TTYSL6SI7xdsds6lrAHyoy4WoploDx8Ri2OpgF+VQNscmvphgAEJGq5lcoU
+    8TCygDKsqBnljV017IpRrV+cmoz+C41dIW7fWHPW55Lw8uRnB6oPSy0spyYGOFt6
+    AnciPXEtAgMBAAECggEABJHAxVRnF5Wx24LcQs6vhsP8Us8nACshp1usbL54A0No
+    1v8wyDugEnbh0EQqQp+cExnIjq/URdMXpfRi1dEc8f2NFNaPOKsilklEw+hwcSwT
+    NULRKOiJXDpAcRcjBWnAVqeZ3dmhM+SnD3pibSmlnYu2m9qlk5iMw+ffHwwsZvsP
+    XUh0ApmmjX1gEqCaJ6i96rdzg2XJ5fw6DbIPW8e6VfSz6c1dCiG7+2ZiZVMuafvh
+    E/P1fPGTBwwTk9VThrMmRYYlJx1UXPDmfLf3uh+GL5gt7XUQS7mdsRlqpkxL4mDW
+    4zh9sgcl77AOV8KYyYH0jYYc5AT2LfSZKkYqhyboQQKBgQDyPanh9FIYjIhCei2t
+    NyRYl0xABk7lXuY2Z6q2fkvwgTreJ+Iu8qEGEmj5NIyVjpUN0m5bTjLKXl7GmZ6M
+    nH4NRqbFfdUWlSpCKmEs4dvBjt3so7fDn6nLJo7+M/F0k1wnIBNDW+O7sSs40IZ6
+    H9OqMbZbheP/nxauNl1MfQ5KjQKBgQDp0QJDTPwS8SkktZRhv3Hka8cBtfdfPNCt
+    xq8VGqncd8ScIoUa5TKqw60jWf08ErxNOjKlts/Gjuw7AUp9/qOEntI9N9IHNLsT
+    21hrEWACcoyzzcyRZjxtIsaq2U2cr8Xzg6CUYzy9qdnaHTg0Kh/YPqxJ0wx/mQMD
+    cPnYBpppIQKBgG/ip1qj/F82WaFKyVoeA/2fNCrGPx6WLIKocyMDRpP5PHVrun6w
+    tksVqcKg0OYrCxFtRmeJwM/TsrbMMX0EsvvyzAifzBI4J2KULHoMf/HwyPQJ0lDa
+    qBQa5SToXPfZMFEp8XvFL3R7qlj9h39Uv/D2MSIov1xL4K/qkEFJ6ZXpAoGBAMv3
+    KfQvqg2UFoIRbFlAuke6xSV26U5JLPkKwxyz382VJQvXCSoHGoXgoJ6gF8pZxa3Q
+    wPHSYboiX2yxmZwDj/1W1qvUkAD9PNz7kUwFIi3AY4FOW8/S0Y+asJfFbHDs3M+q
+    2V/YmdoR2xrsNmU7AgCP25ei5dpBTmGoIisSx4xBAoGAZF+vhjdyqj7f23Ws/G1Z
+    d/5IoX6OJggcLiNO83PDfyJmbvkVQI8GGuWU953/paZ0sp+JmUxRehBjVdiZFdd0
+    6xoZkRgowlfkiXG4Cn/KETQ1Q9IDcy351Wq+H6Lwtt5CW0exGBrAF0Ak/NoDbjnh
+    sNhvc99FjKrjLzSbkeQB4Ks=
+    -----END PRIVATE KEY-----
   geminiApiKey: ""
   smtpUser: ""
   smtpPass: ""
