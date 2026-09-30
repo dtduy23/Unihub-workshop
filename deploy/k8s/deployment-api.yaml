@@ -27,7 +27,7 @@ spec:
       serviceAccountName: unihub-api
       containers:
       - name: api
-        image: unihub-backend:localhost
+        image: duyd4010/unihub-backend:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080

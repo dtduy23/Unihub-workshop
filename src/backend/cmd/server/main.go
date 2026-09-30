@@ -23,6 +23,7 @@ import (
 	"unihub-workshop/internal/metrics"
 	"unihub-workshop/internal/middleware"
 	"unihub-workshop/internal/model"
+	"unihub-workshop/internal/presence"
 	"unihub-workshop/internal/queue"
 	"unihub-workshop/internal/ratelimiter"
 	"unihub-workshop/internal/repository"
@@ -46,6 +47,10 @@ func main() {
 
 	// Load config
 	cfg := config.Load()
+
+	// Context for background workers and graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Initialize infrastructure
 	pgPool := database.NewPostgresPool(cfg)
@@ -115,9 +120,14 @@ func main() {
 	batchService := service.NewBatchImportService(importRepo, userRepo, cfg.CSVImportDir, cfg.CSVArchiveDir)
 	aiService := service.NewAISummaryService(workshopRepo, cfg.AIApiKey, cfg.GeminiModel, cfg.AITemperature, cfg.AIMaxTokens)
 
+	// Initialize presence tracker for pre-registration traffic ramp-up detection and autoscaling
+	presenceTracker := presence.NewPresenceTracker(redisClient, 3)
+	presenceTracker.StartCollector(ctx, 5*time.Second)
+	presenceMW := middleware.NewPresenceMiddleware(presenceTracker)
+
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService, rsaProvider)
-	workshopHandler := handler.NewWorkshopHandler(workshopService)
+	workshopHandler := handler.NewWorkshopHandler(workshopService, presenceTracker)
 	regHandler := handler.NewRegistrationHandler(regService)
 	checkinHandler := handler.NewCheckinHandler(checkinService)
 	notifHandler := handler.NewNotificationHandler(notifService)
@@ -135,6 +145,7 @@ func main() {
 	// Global middleware
 	r.Use(middleware.StructuredLogger)
 	r.Use(middleware.MetricsMiddleware)
+	r.Use(presenceMW.Handler)
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Timeout(30 * time.Second))
@@ -157,6 +168,7 @@ func main() {
 	// Public workshop listing (no auth needed for browsing)
 	r.Get("/api/v1/workshops", workshopHandler.List)
 	r.Get("/api/v1/workshops/{id}", workshopHandler.GetByID)
+	r.Get("/api/v1/workshops/{id}/presence", workshopHandler.GetPresence)
 
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
@@ -208,10 +220,6 @@ func main() {
 			r.Get("/api/v1/admin/stats", adminHandler.GetStats)
 		})
 	})
-
-	// Context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	mode := cfg.AppMode
 	log.Printf("[SERVER] Running in mode: %s", mode)

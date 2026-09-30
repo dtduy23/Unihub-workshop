@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { type Workshop } from "./workshop-card"
 import { useRegistration } from "@/hooks/use-registration"
+import { usePresenceHeartbeat } from "@/hooks/use-presence-heartbeat"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
@@ -44,6 +45,7 @@ export function WorkshopDetailDialog({
     waitingPosition, 
     handleRegister
   } = useRegistration(workshop?.id || "")
+  const { activeUsers } = usePresenceHeartbeat(open ? workshop?.id : null)
 
   useEffect(() => {
     if (!open) {
@@ -209,9 +211,20 @@ export function WorkshopDetailDialog({
             )}
 
             <div className="h-[40%] w-full bg-gradient-to-br from-primary/30 via-primary/10 to-slate-50 flex flex-col items-center justify-center p-10 text-center shrink-0">
-              <Badge className="mb-6 bg-primary text-white hover:bg-primary/90 shadow-lg px-6 py-1.5 text-sm">
-                {workshop.category}
-              </Badge>
+              <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+                <Badge className="bg-primary text-white hover:bg-primary/90 shadow-lg px-6 py-1.5 text-sm">
+                  {workshop.category}
+                </Badge>
+                {activeUsers > 0 && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm animate-in fade-in duration-300">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    {activeUsers.toLocaleString()} bạn đang xem
+                  </span>
+                )}
+              </div>
               <h2 className="text-3xl font-black text-slate-900 tracking-tight leading-tight">
                 {workshop.title}
               </h2>

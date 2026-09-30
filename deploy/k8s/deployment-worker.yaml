@@ -27,7 +27,7 @@ spec:
       serviceAccountName: unihub-worker
       containers:
       - name: worker
-        image: unihub-backend:localhost
+        image: duyd4010/unihub-backend:latest
         imagePullPolicy: IfNotPresent
 
         env:
