@@ -10,10 +10,10 @@ export function useWorkshops() {
   /**
    * Hàm bổ trợ để tính toán trạng thái dựa trên thời gian thực
    */
-  const processWorkshops = (data: any[]) => {
+  const processWorkshops = (data: Workshop[]): Workshop[] => {
     const now = new Date();
 
-    const processed = data.map((ws) => {
+    const processed: (Workshop & { status: NonNullable<Workshop["status"]> })[] = data.map((ws) => {
       const start = new Date(ws.start_time);
       const end = new Date(ws.end_time);
 
@@ -41,11 +41,11 @@ export function useWorkshops() {
 
     try {
       // Gọi Go Backend — GET /api/v1/workshops
-      const { data, error } = await apiRequest<any[]>('/api/v1/workshops');
+      const { data, error } = await apiRequest<(Omit<Workshop, 'status'> & { status: string })[]>('/api/v1/staff/workshops');
 
       if (error || !data) throw new Error(error || 'Fetch failed');
 
-      const finalData = processWorkshops(data);
+      const finalData = processWorkshops(data.filter(ws => ['PUBLISHED', 'CLOSED'].includes(ws.status)).map(({ status: _status, ...ws }) => ws));
       setWorkshops(finalData);
       await saveWorkshopsOffline(finalData); // Lưu vào máy để dùng lần sau
 

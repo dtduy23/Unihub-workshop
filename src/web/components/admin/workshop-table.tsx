@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import type { WorkshopStatus } from '@/lib/types'
 
 export interface Workshop {
   id: string
@@ -30,7 +31,7 @@ export interface Workshop {
   capacity: number
   registered: number
   price: number
-  status: "PUBLISHED" | "CLOSED" | "DELETED"
+  status: WorkshopStatus
 }
 
 interface WorkshopTableProps {
@@ -41,6 +42,10 @@ interface WorkshopTableProps {
 }
 
 const statusConfig = {
+  DRAFT: { label: 'Bản nháp', className: 'bg-slate-50 text-slate-700' },
+  PENDING_REVIEW: { label: 'Chờ duyệt', className: 'bg-indigo-50 text-indigo-700' },
+  REJECTED: { label: 'Cần chỉnh sửa', className: 'bg-rose-50 text-rose-700' },
+  CANCELLED: { label: 'Đã hủy', className: 'bg-rose-50 text-rose-700' },
   PUBLISHED: {
     label: "Đang mở",
     className: "bg-emerald-50 text-emerald-700 border-emerald-200",

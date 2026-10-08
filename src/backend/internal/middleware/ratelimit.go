@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -12,8 +13,8 @@ import (
 
 // RateLimitMiddleware applies Token Bucket rate limiting with Redis + local fallback
 type RateLimitMiddleware struct {
-	redisBucket *ratelimiter.RedisTokenBucket
-	localBucket *ratelimiter.LocalBucket
+	redisBucket  *ratelimiter.RedisTokenBucket
+	localBucket  *ratelimiter.LocalBucket
 	redisTimeout time.Duration
 }
 
@@ -36,7 +37,10 @@ func (rl *RateLimitMiddleware) Handler(next http.Handler) http.Handler {
 			identifier = uid
 		} else {
 			// Fallback to IP for unauthenticated requests
-			identifier = r.RemoteAddr
+			identifier, _, _ = net.SplitHostPort(r.RemoteAddr)
+			if identifier == "" {
+				identifier = r.RemoteAddr
+			}
 		}
 
 		// Try Redis first with timeout

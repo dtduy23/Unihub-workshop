@@ -93,14 +93,13 @@ During university-wide career and technical workshop weeks, thousands of student
 
 ## 🚀 Key Engineering & Concurrency Highlights
 
-### 1. Zero-Overbooking via Dual-Layer Concurrency Control
-* **Layer 1 (In-Memory Atomic Gate):** Redis Lua scripts execute atomic seat deductions before requests ever touch the relational database. If seats are depleted, subsequent requests are rejected or placed in a virtual queue immediately.
-* **Layer 2 (Database Transaction Optimization):** In PostgreSQL, seats are decremented with pessimistic locking (`SELECT available_seats FROM workshops WHERE id = $1 FOR UPDATE`).
-* **Critical Lock Optimization:** Heavy cryptographic operations (RSA-2048 signature generation and SHA-256 hashing) are **pre-computed in-memory outside the database transaction**, shrinking the row lock duration from ~25ms down to **< 2ms**, completely eliminating lock timeouts under heavy bursts.
+### 1. Durable reservations and workshop review
+PostgreSQL reserves seats under a workshop row lock before a request is enqueued. Duplicate active requests reuse one correlation ID. Tickets, capacity updates and cancellations preserve the held seat count. Registration and notification outboxes recover unpublished events after a publish failure; Redis serves the waiting room and cache.
 
-### 2. Elimination of In-Memory Memory Leaks (Redis Status TTL)
-* Asynchronous registration statuses (`PROCESSING`, `SUCCESS`, `REJECTED`) are persisted directly into Redis with key pattern `reg:status:<correlation_id>` and a strict **1-hour TTL (`1 * time.Hour`)**.
-* Completely removes unbounded in-memory Go maps, preventing heap degradation over long-running production uptime while providing sub-millisecond polling responses to clients.
+### 2. Authenticated community and business accounts
+The application has exactly four roles: `STUDENT`, `STAFF`, `BUSINESS`, `ADMIN`. All product pages and business APIs require login. Approved businesses create workshops, submit them for admin review and publish announcements linked to their own approved workshops. The web community supports images, likes, one-level comment replies, bookmarks, company follows and moderation with an audit trail. Registration status belongs to its requesting user and is persisted in PostgreSQL.
+
+Web sessions use an HttpOnly JWT cookie through a same-origin API proxy. Password reset uses an expiring, single-use link; password changes invalidate earlier sessions. See [the Vietnamese feature guide](docs/HUONG_DAN_MANG_XA_HOI_DOANH_NGHIEP.md) for setup, permissions and validation limits.
 
 ### 3. Concurrency-Safe Circuit Breaker
 * Custom-built Circuit Breaker protecting third-party dependencies (AI APIs, Mail servers) featuring:
@@ -109,7 +108,7 @@ During university-wide career and technical workshop weeks, thousands of student
   * **Panic recovery middleware** ensuring faulty workers never crash the main daemon.
 
 ### 4. Offline-First Cryptographic Check-in
-* Tickets contain an RSA-2048 digital signature encoding `workshop_id:student_id:issued_at`.
+* Tickets contain an RSA-2048 signature over `student_id|user_uuid|workshop_id`.
 * Mobile devices cache the server's public key upon authentication. During event check-in in basements or crowded auditoriums with **zero network connectivity**, the staff application verifies tickets locally using PKCS#1 v1.5 verification.
 * When connectivity resumes, up to 500 offline check-in logs are synchronized in batches with deterministic timestamp conflict resolution.
 
@@ -132,6 +131,8 @@ Stress tests were conducted using the built-in Go benchmarking engine (`cmd/conc
 | **Simultaneous Gate Burst (16 Cores)** | 3,000 users @ 0ms | 16 vCPUs | **2,235.1 req/s** | 1.34 ms | 2.12 ms | 100 / 100 | **0 (0.00%)** |
 | **Simultaneous Gate Burst (Strict 2 Cores)** | 2,000 users @ 0ms | 2 vCPUs (`taskset -c 0,1`) | **1,754.4 req/s** | 0.96 ms | 1.84 ms | 100 / 100 | **0 (0.00%)** |
 | **Sustained Traffic Pool** | 2,000 users over 3s | 2 vCPUs | **658.2 req/s** | 0.96 ms | 1.45 ms | 50 / 50 | **0 (0.00%)** |
+
+> Historical benchmark results predate the durable PostgreSQL reservation and community changes. Re-run load tests before using these numbers for the current version.
 
 > **Audit Result:** Across all cycles, connection errors were **0**, dropped sockets were **0**, and database consistency was verified at **100.00%** with zero seat anomalies.
 
@@ -195,7 +196,7 @@ Unihub-workshop/
 │   │   ├── cmd/concurrency_demo/# Real-time gate load testing & benchmark tool
 │   │   ├── internal/            # Service, Repository, Queue, SeatLimiter, WaitingRoom
 │   │   └── Dockerfile           # Optimized multi-stage container build
-│   ├── web/                     # Next.js 15 Web Frontend (Admin & Student portals)
+│   ├── web/                     # Next.js 16 Web Frontend (Student, Staff, Business & Admin)
 │   └── mobile/                  # React Native Expo Check-in App (Offline-first)
 │
 ├── docs/                        # 📚 Architectural Blueprints & Implementation Plans
@@ -210,8 +211,8 @@ Unihub-workshop/
 
 ### Prerequisites
 * **Docker & Docker Compose** (Docker Engine v24+)
-* **Go** (v1.22+)
-* **Node.js** (v18+) & `npm` / `pnpm`
+* **Go** (v1.25.5+)
+* **Node.js** (v20.9+) & `npm`
 * **GNU Make**
 
 ### 1. 1-Click Execution via Makefile (Recommended)
@@ -263,7 +264,7 @@ Health Check Endpoint: `http://localhost:8080/health`
 #### Step 3: Run Web Frontend
 ```bash
 cd src/web
-npm install
+npm ci
 npm run dev
 ```
 Web Application: `http://localhost:3000`
@@ -271,7 +272,7 @@ Web Application: `http://localhost:3000`
 #### Step 4: Run Mobile Staff Check-in App
 ```bash
 cd src/mobile
-npm install
+npm ci
 npx expo start --clear
 ```
 Scan the terminal QR code using **Expo Go** on iOS or Android.
@@ -285,6 +286,7 @@ Scan the terminal QR code using **Expo Go** on iOS or Android.
 | :--- | :--- | :--- | :--- |
 | **System Admin** | `admin` (or `admin@unihub.edu.vn`) | `admin123` | Full control: Event CRUD, AI summarization, CSV student batch ingestion, Metrics |
 | **Student** | `student1@unihub.edu.vn` | `123456` | Browse workshops, join virtual waiting room, reserve seats, view QR ticket |
+| **Business** | Created by Admin at `/admin/companies` | Set by Admin (8+ characters) | Profile, own workshops and community posts after approval |
 | **Staff Member**| `staff1@unihub.edu.vn` | `123456` | Offline/Online QR ticket scanner via mobile application |
 
 ### Ready-to-use Sample Datasets

@@ -3,7 +3,7 @@
  * Thay thế Supabase — tất cả data đi qua 1 nguồn duy nhất
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL } from './crypto';
+import { API_BASE_URL } from './config';
 
 const TOKEN_KEY = '@unihub_token';
 
@@ -54,7 +54,7 @@ export async function apiRequest<T = any>(
     const json = await response.json();
 
     if (!response.ok) {
-      return { data: null, error: json.error || `HTTP ${response.status}` };
+      return { data: null, error: json.error || json.message || `HTTP ${response.status}` };
     }
 
     return { data: json.data || json, error: null };

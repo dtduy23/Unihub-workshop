@@ -56,7 +56,7 @@ export function ForgotPasswordDialog({ open, onOpenChange }: ForgotPasswordDialo
         <DialogHeader>
           <DialogTitle>Quên mật khẩu?</DialogTitle>
           <DialogDescription>
-            Nhập MSSV hoặc Email đã đăng ký. Hệ thống sẽ tạo một mật khẩu mới ngẫu nhiên và gửi vào email của bạn.
+            Nhập MSSV hoặc Email đã đăng ký. Nếu tài khoản tồn tại, bạn sẽ nhận được liên kết đặt lại mật khẩu qua email. Liên kết có hiệu lực 30 phút.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 pt-4">
@@ -73,7 +73,7 @@ export function ForgotPasswordDialog({ open, onOpenChange }: ForgotPasswordDialo
             />
           </div>
           <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? "Đang xử lý..." : "Cấp lại mật khẩu mới"}
+            {isLoading ? "Đang xử lý..." : "Gửi liên kết đặt lại"}
           </Button>
         </form>
       </DialogContent>

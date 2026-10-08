@@ -33,7 +33,7 @@ WORKDIR /app
 COPY --from=builder /app/server .
 
 # Set ownership to non-root user
-RUN chown -R appuser:appgroup /app
+RUN mkdir -p /app/data/media && chown -R appuser:appgroup /app
 
 USER appuser
 

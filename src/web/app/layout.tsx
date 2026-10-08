@@ -1,17 +1,11 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 import { Toaster } from 'sonner'
 
-const inter = Inter({ 
-  subsets: ["latin", "vietnamese"],
-  variable: "--font-sans"
-});
-
 export const metadata: Metadata = {
-  title: 'UniHub - Student Workshop Portal',
-  description: 'Khám phá và đăng ký các workshop chất lượng dành cho sinh viên',
+  title: 'UniHub - Cộng đồng và Workshop',
+  description: 'Kết nối sinh viên, doanh nghiệp và khám phá workshop sắp diễn ra',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -39,7 +33,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi" className="bg-background">
-      <body className={`${inter.variable} font-sans antialiased`}>
+      <body className="font-sans antialiased">
         {children}
         <Toaster richColors position="top-right" />
         {process.env.NODE_ENV === 'production' && <Analytics />}

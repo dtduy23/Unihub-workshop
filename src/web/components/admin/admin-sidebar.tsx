@@ -13,8 +13,13 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { auth } from '@/lib/api-client'
 
 const navItems = [
+ {name:'Doanh nghiệp',href:'/admin/companies',icon:LayoutDashboard},
+ {name:'Duyệt Workshop',href:'/admin/workshop-reviews',icon:CalendarRange},
+ {name:'Kiểm duyệt cộng đồng',href:'/admin/moderation',icon:Database},
+ {name:'Bảng tin',href:'/feed',icon:Sparkles},
   { 
     name: 'Dashboard', 
     href: '/admin', 
@@ -36,9 +41,9 @@ export function AdminSidebar() {
   const pathname = usePathname()
   const router = useRouter()
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     // 1. Xóa session cookie
-    document.cookie = "unihub_session=; path=/; max-age=0; SameSite=Lax"
+    await auth.clearSession()
     
     // 2. Thông báo và điều hướng mượt mà
     toast.success('Đăng xuất thành công')

@@ -114,7 +114,11 @@ services:
       SMTP_HOST: "mailhog"
       SMTP_PORT: "1025"
       SERVER_PORT: "8080"
+      WEB_URL: "http://localhost:3000"
+      MEDIA_DIR: "/app/data/media"
       CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+    volumes:
+      - media-data:/app/data/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,6 +177,8 @@ services:
       args:
         NEXT_PUBLIC_API_URL: "http://localhost:8080"
     image: duyd4010/unihub-web:latest
+    environment:
+      API_INTERNAL_URL: "http://api:8080"
     depends_on:
       - api
     deploy:
@@ -209,4 +215,5 @@ services:
 
 
 volumes:
+  media-data:
   postgres_data:

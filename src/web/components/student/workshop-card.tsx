@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button"
 import { WorkshopDetailDialog } from "./workshop-detail-dialog"
 import { useRegistration } from "@/hooks/use-registration"
 import { cn } from "@/lib/utils"
+import { auth } from "@/lib/api-client"
+import type { WorkshopStatus } from "@/lib/types"
 
 export interface Workshop {
   id: string
@@ -27,7 +29,7 @@ export interface Workshop {
   summary?: string // Cột summary từ Backend
   roomLayoutUrl?: string
   isRegistered?: boolean
-  status: "PUBLISHED" | "CLOSED" | "DELETED"
+  status: WorkshopStatus
   registrationStartTime?: string
   registrationEndTime?: string
 }
@@ -78,7 +80,9 @@ export function WorkshopCard({ workshop }: WorkshopCardProps) {
 
   // Cấu hình nút dựa trên trạng thái
   const getButtonConfig = () => {
-    if (workshop.status === "DELETED") {
+    if (!["STUDENT", "ADMIN"].includes(String(auth.getUser()?.role || ""))) return { label: "Chỉ sinh viên được đăng ký", variant: "outline" as const, disabled: true }
+    if (!["PUBLISHED", "CLOSED", "DELETED", "CANCELLED"].includes(workshop.status)) return { label: "Chưa công bố", variant: "outline" as const, disabled: true }
+    if (["DELETED", "CANCELLED"].includes(workshop.status)) {
       return {
         label: "Đã hủy",
         variant: "destructive" as const,

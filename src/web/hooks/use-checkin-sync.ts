@@ -42,31 +42,16 @@ export function useCheckinSync() {
         return
       }
 
-      // Chuyển đổi format cho backend API
-      const records = pending.map((r) => ({
-        id: r.id,
-        student_id: r.studentId,
-        workshop_id: r.workshopId,
-        scanned_at: Math.floor(r.scannedAt / 1000), // ms → seconds
-      }))
-
-      const response = await api.post<{ synced: string[]; failed: string[] }>(
-        '/api/v1/checkin/sync',
-        { records }
-      )
-
-      const data = response.data as any
-      const synced = data?.synced || []
-      const failed = data?.failed || []
-
-      // Đánh dấu thành công
-      for (const id of synced) {
-        await markAsSynced(id)
-      }
-
-      // Đánh dấu thất bại
-      for (const id of failed) {
-        await markAsFailed(id)
+      for (let offset = 0; offset < pending.length; offset += 500) {
+        const chunk = pending.slice(offset, offset + 500)
+        const records = chunk.map(r => ({
+          id: r.id, studentId: r.studentId, workshopId: r.workshopId,
+          scannedAt: Math.floor(r.scannedAt / 1000),
+        }))
+        const response = await api.post<{ synced: string[]; failed: string[] }>('/api/v1/checkin/sync', { records })
+        const allowed = new Set(chunk.map(r => r.id))
+        for (const id of response.data?.synced || []) if (allowed.has(id)) await markAsSynced(id)
+        for (const id of response.data?.failed || []) if (allowed.has(id)) await markAsFailed(id)
       }
 
       // Cập nhật pending count
@@ -74,9 +59,6 @@ export function useCheckinSync() {
       setPendingCount(remaining.length)
       setLastSyncAt(Date.now())
 
-      if (synced.length > 0) {
-        console.log(`[Sync] ✅ Đồng bộ ${synced.length} bản ghi thành công`)
-      }
     } catch (error) {
       console.warn('[Sync] ⚠️ Lỗi đồng bộ:', error)
     } finally {

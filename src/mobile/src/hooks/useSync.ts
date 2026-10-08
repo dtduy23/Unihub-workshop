@@ -1,53 +1,35 @@
 import { useEffect } from 'react';
 import { getPendingCheckins, markAsSynced } from '../services/storage';
-import { API_BASE_URL } from '../services/crypto';
-
-const SYNC_INTERVAL = 30000; // 30 giây theo specs
-const API_SYNC_URL = `${API_BASE_URL}/api/checkin/sync`;
+import { apiRequest, getToken } from '../services/api';
 
 export function useSync() {
   useEffect(() => {
+    let syncing = false;
+    let stopped = false;
     const syncData = async () => {
+      if (syncing || stopped || !(await getToken())) return;
+      syncing = true;
       try {
         const pending = await getPendingCheckins();
-        if (pending.length === 0) return;
-
-        console.log(`[Sync] Đang gọi API: ${API_SYNC_URL}`);
-
-        const response = await fetch(API_SYNC_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pending),
-        });
-
-        const contentType = response.headers.get('content-type');
-
-        if (response.ok && contentType?.includes('application/json')) {
-          const result = await response.json();
-          const successfullySynced = result.synced_ids || [];
-
-          // CHỈ XÓA các bản ghi mà Server xác nhận đã lưu thành công
-          for (const id of successfullySynced) {
-            await markAsSynced(id);
-          }
-
-          if (successfullySynced.length > 0) {
-            console.log(`[Sync] Thành công! Đã đồng bộ ${successfullySynced.length} bản ghi.`);
-          }
-        } else {
-          const text = await response.text();
-          console.warn(`[Sync] Server trả về không phải JSON (${response.status}):`, text.substring(0, 200));
+        for (let offset = 0; offset < pending.length && !stopped; offset += 500) {
+          const chunk = pending.slice(offset, offset + 500);
+          const records = chunk.map(record => ({
+            id: record.id, student_id: record.student_id, workshop_id: record.workshop_id,
+            scanned_at: Math.floor(record.scanned_at > 1e12 ? record.scanned_at / 1000 : record.scanned_at),
+          }));
+          const { data, error } = await apiRequest<{ synced: string[]; failed: unknown[] }>('/api/v1/checkin/sync', {
+            method: 'POST', body: JSON.stringify({ records }),
+          });
+          if (error || !data) { console.warn('[Sync]', error || 'Chưa nhận xác nhận đồng bộ'); break; }
+          const ids = new Set(chunk.map(record => record.id));
+          for (const id of data.synced || []) if (ids.has(id)) await markAsSynced(id);
+          if (data.failed?.length) console.warn(`[Sync] ${data.failed.length} bản ghi cần kiểm tra lại.`);
         }
-      } catch (error: any) {
-        console.warn('[Sync] Lỗi kết nối mạng:', error.message);
-        console.warn('[Sync] Hãy kiểm tra: 1. Server đang chạy? 2. Cùng Wi-Fi? 3. Tường lửa máy tính?');
-      }
+      } catch (error) { console.warn('[Sync]', error instanceof Error ? error.message : 'Không thể đồng bộ'); }
+      finally { syncing = false; }
     };
-
-    const timer = setInterval(syncData, SYNC_INTERVAL);
-    // Chạy lần đầu ngay khi mount
-    syncData();
-
-    return () => clearInterval(timer);
+    const timer = setInterval(() => { void syncData(); }, 30_000);
+    void syncData();
+    return () => { stopped = true; clearInterval(timer); };
   }, []);
 }

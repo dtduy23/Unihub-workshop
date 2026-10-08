@@ -1,86 +1,83 @@
-"use client"
-
-import { useState } from "react"
-import { Bell, LogOut, User, KeyRound } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { useRouter } from "next/navigation"
-import { toast } from "sonner"
-import { NotificationBell } from "./notification-bell"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { ChangePasswordDialog } from "./change-password-dialog"
+'use client'
+import { useSessionUser } from '@/hooks/use-session-user'
+import { useState } from 'react'
+import Link from 'next/link'
+import { useRouter, usePathname } from 'next/navigation'
+import { LogOut, KeyRound } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { auth } from '@/lib/api-client'
+import { NotificationBell } from './notification-bell'
+import { ChangePasswordDialog } from './change-password-dialog'
 
 export function Navbar() {
-  const router = useRouter()
-  const [showChangePassword, setShowChangePassword] = useState(false)
-
-  const handleLogout = () => {
-    // 1. Xóa session cookie
-    document.cookie = "unihub_session=; path=/; max-age=0; SameSite=Lax"
-    
-    // 2. Thông báo và điều hướng
-    toast.success('Đã đăng xuất thành công')
+  const router = useRouter(),
+    path = usePathname()
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const user = useSessionUser()
+  const role = String(user?.role || '')
+  const links = [
+    { href: '/', label: 'Workshop' },
+    { href: '/feed', label: 'Cộng đồng' },
+    { href: '/companies', label: 'Doanh nghiệp' },
+    { href: '/saved', label: 'Đã lưu' },
+  ]
+  if (role === 'BUSINESS')
+    links.push({ href: '/business', label: 'Quản lý doanh nghiệp' })
+  if (role === 'ADMIN') links.push({ href: '/admin', label: 'Quản trị' })
+  if (role === 'STAFF')
+    links.push({ href: '/staff/checkin', label: 'Check-in' })
+  async function logout() {
+    await auth.clearSession()
     router.push('/login')
+    router.refresh()
   }
-
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-card">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Logo */}
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
-            <span className="text-sm font-bold text-primary-foreground">U</span>
-          </div>
-          <span className="text-xl font-semibold text-foreground">UniHub</span>
-        </div>
-
-        {/* Right Actions */}
-        <div className="flex items-center gap-2">
+    <header className="sticky top-0 z-40 border-b bg-white/95 backdrop-blur">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-4 px-4 py-3 sm:px-6">
+        <Link href="/feed" className="flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 font-bold text-white">
+            U
+          </span>
+          <span className="text-lg font-bold text-slate-900">UniHub</span>
+        </Link>
+        <nav className="order-3 flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto">
+          {links.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${path === link.href ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="ml-auto flex items-center gap-1">
+          <span className="mr-2 hidden max-w-32 truncate text-xs text-slate-500 md:block">
+            {String(user?.fullName || '')}
+          </span>
           <NotificationBell />
-
-          {/* User Avatar Dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-9 w-9 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors">
-                <User className="h-5 w-5 text-slate-600" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <div className="flex items-center gap-2 p-2">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                    SV
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium">Nguyễn Văn A</span>
-                  <span className="text-xs text-muted-foreground">SV123456</span>
-                </div>
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setShowChangePassword(true)}>
-                <KeyRound className="mr-2 h-4 w-4" />
-                <span>Đổi mật khẩu</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem 
-                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                onClick={handleLogout}
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Đăng xuất</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Đổi mật khẩu"
+            onClick={() => setPasswordOpen(true)}
+          >
+            <KeyRound className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Đăng xuất"
+            onClick={() => void logout()}
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
         </div>
       </div>
-      <ChangePasswordDialog open={showChangePassword} onOpenChange={setShowChangePassword} />
+      <ChangePasswordDialog
+        open={passwordOpen}
+        onOpenChange={setPasswordOpen}
+      />
     </header>
   )
 }

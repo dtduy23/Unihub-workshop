@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"unihub-workshop/internal/model"
 
@@ -23,7 +24,7 @@ func (r *RegistrationRepo) Create(ctx context.Context, tx pgx.Tx, reg *model.Reg
 		`INSERT INTO registrations (user_id, workshop_id, status, ticket_signature)
 		 VALUES ($1, $2, $3, $4) 
 		 ON CONFLICT (user_id, workshop_id) 
-		 DO UPDATE SET status = EXCLUDED.status, ticket_signature = EXCLUDED.ticket_signature, created_at = NOW()
+		 DO UPDATE SET status = EXCLUDED.status, ticket_signature = EXCLUDED.ticket_signature, created_at = NOW(),updated_at=NOW(),is_checked_in=false,checked_in_at=NULL
 		 WHERE registrations.status NOT IN ('SUCCESS')
 		 RETURNING id, created_at`,
 		reg.UserID, reg.WorkshopID, reg.Status, reg.TicketSignature,
@@ -41,10 +42,10 @@ func (r *RegistrationRepo) CreateDirect(ctx context.Context, reg *model.Registra
 func (r *RegistrationRepo) FindByID(ctx context.Context, id string) (*model.Registration, error) {
 	var reg model.Registration
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, workshop_id, status, ticket_signature, is_checked_in, created_at
+		`SELECT id, user_id, workshop_id, status, ticket_signature, is_checked_in, created_at, updated_at, checked_in_at
 		 FROM registrations WHERE id = $1`, id,
 	).Scan(&reg.ID, &reg.UserID, &reg.WorkshopID, &reg.Status, &reg.TicketSignature,
-		&reg.IsCheckedIn, &reg.CreatedAt)
+		&reg.IsCheckedIn, &reg.CreatedAt, &reg.UpdatedAt, &reg.CheckedInAt)
 	if err != nil {
 		return nil, fmt.Errorf("registration not found: %w", err)
 	}
@@ -54,10 +55,10 @@ func (r *RegistrationRepo) FindByID(ctx context.Context, id string) (*model.Regi
 func (r *RegistrationRepo) FindByUserAndWorkshop(ctx context.Context, userID, workshopID string) (*model.Registration, error) {
 	var reg model.Registration
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, workshop_id, status, ticket_signature, is_checked_in, created_at
+		`SELECT id, user_id, workshop_id, status, ticket_signature, is_checked_in, created_at, updated_at, checked_in_at
 		 FROM registrations WHERE user_id = $1 AND workshop_id = $2`, userID, workshopID,
 	).Scan(&reg.ID, &reg.UserID, &reg.WorkshopID, &reg.Status, &reg.TicketSignature,
-		&reg.IsCheckedIn, &reg.CreatedAt)
+		&reg.IsCheckedIn, &reg.CreatedAt, &reg.UpdatedAt, &reg.CheckedInAt)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +67,7 @@ func (r *RegistrationRepo) FindByUserAndWorkshop(ctx context.Context, userID, wo
 
 func (r *RegistrationRepo) FindByUser(ctx context.Context, userID string) ([]model.Registration, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, user_id, workshop_id, status, ticket_signature, is_checked_in, created_at
+		`SELECT id, user_id, workshop_id, status, ticket_signature, is_checked_in, created_at, updated_at, checked_in_at
 		 FROM registrations WHERE user_id = $1 ORDER BY created_at DESC`, userID,
 	)
 	if err != nil {
@@ -78,7 +79,7 @@ func (r *RegistrationRepo) FindByUser(ctx context.Context, userID string) ([]mod
 	for rows.Next() {
 		var reg model.Registration
 		if err := rows.Scan(&reg.ID, &reg.UserID, &reg.WorkshopID, &reg.Status, &reg.TicketSignature,
-			&reg.IsCheckedIn, &reg.CreatedAt); err != nil {
+			&reg.IsCheckedIn, &reg.CreatedAt, &reg.UpdatedAt, &reg.CheckedInAt); err != nil {
 			return nil, err
 		}
 		regs = append(regs, reg)
@@ -126,29 +127,29 @@ func (r *RegistrationRepo) UpdateStatusAndQR(ctx context.Context, id string, sta
 }
 
 func (r *RegistrationRepo) CheckIn(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE registrations SET is_checked_in = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, id)
-	return err
+	return r.CheckInWithTime(ctx, id, time.Now().Unix())
 }
 
 func (r *RegistrationRepo) CheckInWithTime(ctx context.Context, id string, scannedAt int64) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE registrations SET is_checked_in = TRUE, updated_at = to_timestamp($1) WHERE id = $2
-		 AND (is_checked_in = FALSE OR updated_at < to_timestamp($1))`,
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE registrations r SET is_checked_in=TRUE, checked_in_at=LEAST(COALESCE(checked_in_at,to_timestamp($1)),to_timestamp($1)),updated_at=now() WHERE r.id=$2 AND r.status='SUCCESS' AND EXISTS(SELECT 1 FROM workshops w WHERE w.id=r.workshop_id AND w.status IN ('PUBLISHED','CLOSED'))`,
 		scannedAt, id)
+	if err == nil && tag.RowsAffected() == 0 {
+		return fmt.Errorf("vé không còn hiệu lực")
+	}
 	return err
 }
 
 func (r *RegistrationRepo) FindByStudentAndWorkshop(ctx context.Context, studentID, workshopID string) (*model.Registration, error) {
 	var reg model.Registration
 	err := r.pool.QueryRow(ctx,
-		`SELECT r.id, r.user_id, r.workshop_id, r.status, r.ticket_signature, r.is_checked_in, r.created_at
+		`SELECT r.id, r.user_id, r.workshop_id, r.status, r.ticket_signature, r.is_checked_in, r.created_at, r.updated_at, r.checked_in_at
 		 FROM registrations r
 		 JOIN users u ON r.user_id = u.id
-		 WHERE u.student_id = $1 AND r.workshop_id = $2 AND r.status = 'SUCCESS'`,
+		 WHERE u.user_id = $1 AND r.workshop_id = $2 AND r.status = 'SUCCESS'`,
 		studentID, workshopID,
 	).Scan(&reg.ID, &reg.UserID, &reg.WorkshopID, &reg.Status, &reg.TicketSignature,
-		&reg.IsCheckedIn, &reg.CreatedAt)
+		&reg.IsCheckedIn, &reg.CreatedAt, &reg.UpdatedAt, &reg.CheckedInAt)
 	if err != nil {
 		return nil, err
 	}

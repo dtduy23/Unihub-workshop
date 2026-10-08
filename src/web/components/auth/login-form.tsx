@@ -58,7 +58,7 @@ export function LoginForm() {
 
       const { token, user } = response.data
 
-      // Lưu JWT token và session vào cookie
+      // Lưu thông tin hiển thị; máy chủ đã đặt cookie JWT HttpOnly.
       auth.setSession(token, {
         id: user.id,
         studentId: user.studentId,
@@ -70,12 +70,13 @@ export function LoginForm() {
       toast.success(`Chào mừng ${user.fullName}!`)
 
       // Chuyển hướng theo Role từ Go Backend
-      // Go Backend dùng: ORGANIZER, STAFF, STUDENT
-      console.log('User Role from Backend:', user.role)
+      // Bốn role: STUDENT, STAFF, BUSINESS, ADMIN
       const role = user.role?.toUpperCase()
 
       if (role === 'ADMIN') {
         router.push('/admin')
+      } else if (role === 'BUSINESS') {
+        router.push('/business')
       } else if (role === 'STAFF') {
         router.push('/staff/checkin')
       } else {
@@ -107,7 +108,7 @@ export function LoginForm() {
       {/* Student ID Field */}
       <div className="space-y-2">
         <label htmlFor="studentId" className="text-sm font-medium text-foreground">
-          Mã số / Email Admin
+          Mã đăng nhập / Email
         </label>
         <div className="relative">
           <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
@@ -115,7 +116,7 @@ export function LoginForm() {
             id="studentId"
             name="studentId"
             type="text"
-            placeholder="Nhập mã số (VD: 21127001 hoặc admin)"
+            placeholder="Nhập mã tài khoản hoặc email"
             value={formData.studentId}
             onChange={handleChange}
             className="pl-10 h-11 bg-background border-input"

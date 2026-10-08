@@ -1,18 +1,22 @@
-import * as Crypto from 'expo-crypto';
+import { getToken } from './api';
+import { API_BASE_URL } from './config';
+export { API_BASE_URL } from './config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { KJUR, KEYUTIL } from 'jsrsasign';
 import { Buffer } from 'buffer';
 
 const PUBLIC_KEY_STORAGE_KEY = '@unihub_public_key';
-// Thay đổi IP này cho khớp với IP máy tính chạy Go Backend
-export const API_BASE_URL = 'http://192.168.7.117:8080';
 
 /**
  * Tải và lưu trữ Public Key từ Backend.
  */
 export async function syncPublicKey(): Promise<boolean> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/public-key`);
+    const token = await getToken();
+    if (!token) return false;
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/public-key`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     const json = await response.json();
     
     if (json.success && json.data?.public_key) {

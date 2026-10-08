@@ -2,7 +2,7 @@
  * API Client — Lớp giao tiếp giữa Frontend và Go Backend.
  *
  * Chức năng chính:
- * - Tự động gắn JWT Bearer token từ cookie vào mọi request
+ * - Gọi proxy cùng origin; JWT được giữ trong cookie HttpOnly ở máy chủ
  * - Chuyển đổi snake_case (Go) → camelCase (TS) ở response
  * - Chuyển đổi camelCase (TS) → snake_case (Go) ở request body (tuỳ chọn)
  * - Xử lý chuẩn APIResponse wrapper từ Go
@@ -10,7 +10,7 @@
  * Tuân thủ: agent.md mục 10.2 và 10.3
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+const API_BASE_URL = '/api/backend'
 
 // ==========================================
 // Types — khớp với Go model.APIResponse
@@ -66,14 +66,8 @@ function toSnakeCase(obj: unknown): unknown {
 }
 
 // ==========================================
-// Cookie helper (đọc JWT token)
+// Session display helpers
 // ==========================================
-
-function getAuthToken(): string | null {
-  if (typeof document === 'undefined') return null
-  const match = document.cookie.match(/(?:^|;\s*)unihub_token=([^;]*)/)
-  return match ? decodeURIComponent(match[1]) : null
-}
 
 // ==========================================
 // Core fetch wrapper
@@ -89,7 +83,7 @@ type FetchOptions = {
 
 /**
  * Gọi API Go Backend.
- * Tự động gắn JWT, chuyển đổi case, và unwrap APIResponse.
+ * Chuyển đổi case và đọc APIResponse; proxy gắn JWT trên máy chủ.
  *
  * @throws Error khi success=false hoặc HTTP lỗi
  */
@@ -103,12 +97,6 @@ async function fetchAPI<T = unknown>(
 
   const requestHeaders: Record<string, string> = {
     ...headers,
-  }
-
-  // Gắn JWT token
-  const token = getAuthToken()
-  if (token) {
-    requestHeaders['Authorization'] = `Bearer ${token}`
   }
 
   // Chuẩn bị request
@@ -142,27 +130,33 @@ async function fetchAPI<T = unknown>(
 
     // Nếu HTTP lỗi hoặc success=false, throw để caller xử lý
     if (!response.ok || !converted.success) {
-      const errorMessage = converted.error || converted.message || `HTTP ${response.status}`
-      
+      const errorMessage =
+        converted.error || converted.message || `HTTP ${response.status}`
+
       // Tự động clear session nếu token hết hạn (401)
       if (response.status === 401) {
-        auth.clearSession()
+        await auth.clearSession()
         if (typeof window !== 'undefined') {
           window.location.href = '/login' // Chuyển hướng về trang login
         }
       }
-      
-      throw new APIError(errorMessage, response.status, response.headers)
+
+      throw new APIError(
+        errorMessage,
+        response.status,
+        response.headers,
+        converted.data
+      )
     }
 
     return converted
   } catch (error) {
     // Log lỗi chi tiết để debug (đã ẩn theo yêu cầu người dùng)
-    
+
     if (error instanceof APIError) throw error
-    
+
     // Lỗi network (Fail to fetch)
-    throw new Error('Không thể kết nối đến server. Vui lòng kiểm tra backend đang chạy tại port 8080.')
+    throw new Error('Không thể kết nối máy chủ. Vui lòng thử lại.')
   }
 }
 
@@ -174,7 +168,12 @@ export class APIError extends Error {
   status: number
   headers: Headers
 
-  constructor(message: string, status: number, headers: Headers) {
+  constructor(
+    message: string,
+    status: number,
+    headers: Headers,
+    public data?: unknown
+  ) {
     super(message)
     this.name = 'APIError'
     this.status = status
@@ -193,17 +192,30 @@ export class APIError extends Error {
 // ==========================================
 
 export const api = {
-  get: <T = unknown>(endpoint: string, options?: Omit<FetchOptions, 'method' | 'body'>) =>
-    fetchAPI<T>(endpoint, { ...options, method: 'GET' }),
+  get: <T = unknown>(
+    endpoint: string,
+    options?: Omit<FetchOptions, 'method' | 'body'>
+  ) => fetchAPI<T>(endpoint, { ...options, method: 'GET' }),
 
-  post: <T = unknown>(endpoint: string, body?: unknown, options?: Omit<FetchOptions, 'method' | 'body'>) =>
-    fetchAPI<T>(endpoint, { ...options, method: 'POST', body }),
+  post: <T = unknown>(
+    endpoint: string,
+    body?: unknown,
+    options?: Omit<FetchOptions, 'method' | 'body'>
+  ) => fetchAPI<T>(endpoint, { ...options, method: 'POST', body }),
 
-  put: <T = unknown>(endpoint: string, body?: unknown, options?: Omit<FetchOptions, 'method' | 'body'>) =>
-    fetchAPI<T>(endpoint, { ...options, method: 'PUT', body }),
+  put: <T = unknown>(
+    endpoint: string,
+    body?: unknown,
+    options?: Omit<FetchOptions, 'method' | 'body'>
+  ) => fetchAPI<T>(endpoint, { ...options, method: 'PUT', body }),
 
-  delete: <T = unknown>(endpoint: string, options?: Omit<FetchOptions, 'method' | 'body'>) =>
-    fetchAPI<T>(endpoint, { ...options, method: 'DELETE' }),
+  patch: <T = unknown>(endpoint: string, body?: unknown) =>
+    fetchAPI<T>(endpoint, { method: 'PATCH', body }),
+
+  delete: <T = unknown>(
+    endpoint: string,
+    options?: Omit<FetchOptions, 'method' | 'body'>
+  ) => fetchAPI<T>(endpoint, { ...options, method: 'DELETE' }),
 
   /**
    * Upload file (FormData) — Dùng cho CSV import và PDF upload.
@@ -217,13 +229,11 @@ export const api = {
    */
   download: async (endpoint: string, filename: string) => {
     const url = `${API_BASE_URL}${endpoint}`
-    const token = getAuthToken()
     const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
 
     const response = await fetch(url, { headers })
     if (!response.ok) {
-        throw new Error('Lỗi khi tải file')
+      throw new Error('Lỗi khi tải file')
     }
     const blob = await response.blob()
     const downloadUrl = window.URL.createObjectURL(blob)
@@ -242,20 +252,20 @@ export const api = {
 // ==========================================
 
 const SESSION_COOKIE = 'unihub_session'
-const TOKEN_COOKIE = 'unihub_token'
 
 export const auth = {
-  /** Lưu JWT token và thông tin user vào cookie sau khi login thành công */
-  setSession(token: string, user: Record<string, unknown>) {
+  /** Lưu thông tin hiển thị sau đăng nhập; cookie này không cấp quyền. */
+  setSession(_token: string, user: Record<string, unknown>) {
     const maxAge = 60 * 60 * 24 // 24 giờ
-    document.cookie = `${TOKEN_COOKIE}=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; SameSite=Lax`
     document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(JSON.stringify(user))}; path=/; max-age=${maxAge}; SameSite=Lax`
+    window.dispatchEvent(new Event('auth-session-change'))
   },
 
   /** Xóa session (logout) */
-  clearSession() {
-    document.cookie = `${TOKEN_COOKIE}=; path=/; max-age=0`
+  async clearSession() {
+    await fetch('/api/auth/logout', { method: 'POST' })
     document.cookie = `${SESSION_COOKIE}=; path=/; max-age=0`
+    window.dispatchEvent(new Event('auth-session-change'))
   },
 
   /** Đọc thông tin user từ session cookie */
@@ -272,6 +282,6 @@ export const auth = {
 
   /** Kiểm tra có đang đăng nhập không */
   isAuthenticated(): boolean {
-    return getAuthToken() !== null
+    return auth.getUser() !== null
   },
 }

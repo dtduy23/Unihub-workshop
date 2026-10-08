@@ -3,6 +3,7 @@ package handler
 import (
 	"log"
 	"net/http"
+	"unihub-workshop/internal/middleware"
 
 	"unihub-workshop/internal/model"
 	"unihub-workshop/internal/presence"
@@ -20,7 +21,7 @@ func NewWorkshopHandler(ws *service.WorkshopService, pt *presence.PresenceTracke
 
 func (h *WorkshopHandler) List(w http.ResponseWriter, r *http.Request) {
 	title := r.URL.Query().Get("title")
-	workshops, err := h.workshopService.ListAll(r.Context(), title)
+	workshops, err := h.workshopService.ListFor(r.Context(), title, middleware.GetUserRole(r.Context()) == model.RoleAdmin)
 	if err != nil {
 		log.Printf("[ERROR] ListAll failed: %v", err)
 		errorResponse(w, http.StatusInternalServerError, "Failed to fetch workshops")
@@ -35,6 +36,16 @@ func (h *WorkshopHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errorResponse(w, http.StatusNotFound, "Workshop not found")
 		return
+	}
+	if middleware.GetUserRole(r.Context()) != model.RoleAdmin {
+		if workshop.Status != model.WorkshopPublished && workshop.Status != model.WorkshopClosed && workshop.Status != model.WorkshopCancelled {
+			errorResponse(w, 404, "Workshop not found")
+			return
+		}
+		if workshop.CompanyID != nil && !h.workshopService.CompanyApproved(r.Context(), *workshop.CompanyID) {
+			errorResponse(w, 404, "Workshop not found")
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, model.APIResponse{Success: true, Data: workshop})
 }

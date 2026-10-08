@@ -6,8 +6,8 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -89,11 +89,14 @@ func (s *RegistrationService) GetCachedWorkshop(ctx context.Context, workshopID 
 // It also performs "lazy promotion" — each poll triggers a batch of queued users
 // to be promoted into the active set, keeping the queue flowing.
 func (s *RegistrationService) CheckWaitingRoom(ctx context.Context, workshopID, userID string) (*waitingroom.WaitingRoomResult, error) {
-	workshop, err := s.GetCachedWorkshop(ctx, workshopID)
+	workshop, err := s.workshopRepo.FindByID(ctx, workshopID)
 	if err != nil {
 		return nil, fmt.Errorf("workshop not found: %w", err)
 	}
 
+	if workshop.Status != model.WorkshopPublished {
+		return nil, fmt.Errorf("workshop không nhận đăng ký")
+	}
 	now := time.Now()
 	if !workshop.RegistrationStartTime.IsZero() && now.Before(workshop.RegistrationStartTime) {
 		return nil, fmt.Errorf("cổng đăng ký chưa mở (thời gian mở: %s)", workshop.RegistrationStartTime.Local().Format("15:04:05 02/01/2006"))
@@ -103,6 +106,9 @@ func (s *RegistrationService) CheckWaitingRoom(ctx context.Context, workshopID, 
 	}
 
 	// Dynamic maxActive: use workshop.Capacity (fallback to 100 if <= 0)
+	if s.waitingRoom == nil {
+		return &waitingroom.WaitingRoomResult{Status: waitingroom.QueueGranted}, nil
+	}
 	maxActive := workshop.Capacity
 	if maxActive <= 0 {
 		maxActive = 100
@@ -134,254 +140,234 @@ func (s *RegistrationService) maybePromote(workshopID string, maxActive int) {
 	}()
 }
 
-// EnqueueRegistration pushes registration request to RabbitMQ and returns a correlation ID
+// Seats are reserved durably before enqueue. SQL is authoritative; Redis is only metadata caching.
 func (s *RegistrationService) EnqueueRegistration(ctx context.Context, userID, workshopID string) (string, error) {
-	// Check if already registered
-	existing, _ := s.regRepo.FindByUserAndWorkshop(ctx, userID, workshopID)
-	if existing != nil && existing.Status == model.RegSuccess {
-		return "", fmt.Errorf("already registered for this workshop")
-	}
-
-	correlationID := uuid.New().String()
-
-	msg := model.QueueMessage{
-		CorrelationID: correlationID,
-		UserID:        userID,
-		WorkshopID:    workshopID,
-		Action:        "REGISTER",
-	}
-
-	// Set initial status
-	s.SetStatus(correlationID, &model.RegistrationStatusResponse{
-		CorrelationID: correlationID,
-		Status:        "PROCESSING",
-		Message:       "Your registration is being processed",
-	})
-
-	// ==========================================
-	// 2. REDIS SEAT LOCK (DOUBLE-CHECK)
-	// ==========================================
-	// Before enqueuing, we try to decrement the seat count in Redis.
-	// This acts as a high-performance shield for the database.
-
-	// Pre-warm cache if needed (Get workshop to know initial seats)
-	workshop, err := s.GetCachedWorkshop(ctx, workshopID)
-	if err != nil {
-		return "", fmt.Errorf("workshop not found: %w", err)
-	}
-
-	// CHECK: Thời gian mở và đóng cổng đăng ký (Chống cURL / Bot lén lút)
-	now := time.Now()
-	if !workshop.RegistrationStartTime.IsZero() && now.Before(workshop.RegistrationStartTime) {
-		return "", fmt.Errorf("cổng đăng ký chưa mở (thời gian mở: %s)",
-			workshop.RegistrationStartTime.Local().Format("15:04:05 02/01/2006"))
-	}
-	if !workshop.RegistrationEndTime.IsZero() && now.After(workshop.RegistrationEndTime) {
-		return "", fmt.Errorf("thời hạn đăng ký chuyên đề này đã kết thúc")
-	}
-
-	if err := s.seatLimiter.PrepareCache(ctx, workshopID, workshop.AvailableSeats); err != nil {
-		return "", fmt.Errorf("failed to prepare seat cache: %w", err)
-	}
-
-	success, err := s.seatLimiter.TryAcquireSeat(ctx, workshopID)
-	if err != nil {
-		return "", fmt.Errorf("failed to acquire seat in Redis: %w", err)
-	}
-
-	if !success {
-		return "", fmt.Errorf("workshop is full (verified by cache)")
-	}
-
-	if err := s.publisher.Publish(ctx, queue.RegistrationQueue, msg); err != nil {
-		// Rollback Redis seat if publishing fails
-		_ = s.seatLimiter.ReleaseSeat(ctx, workshopID)
-
-		s.SetStatus(correlationID, &model.RegistrationStatusResponse{
-			CorrelationID: correlationID,
-			Status:        model.RegFailed,
-			Message:       "System is temporarily unavailable",
-		})
-		return "", fmt.Errorf("failed to enqueue registration: %w", err)
-	}
-
-	log.Printf("[REGISTRATION] Enqueued: correlation=%s user=%s workshop=%s", correlationID, userID, workshopID)
-
-	// Khởi tạo trạng thái PROCESSING ngay khi Enqueue thành công để tránh lỗi 404 ở Client
-	s.SetStatus(correlationID, &model.RegistrationStatusResponse{
-		CorrelationID: correlationID,
-		Status:        model.RegProcessing,
-		Message:       "Đang chờ xử lý trong hàng đợi...",
-	})
-
-	return correlationID, nil
-}
-
-// ProcessRegistration is called by the background worker to process a registration message
-func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model.QueueMessage) error {
-	log.Printf("[WORKER] Processing registration: correlation=%s", msg.CorrelationID)
-
-	// 1. Get workshop info to determine if it exists
-	workshop, err := s.GetCachedWorkshop(ctx, msg.WorkshopID)
-	if err != nil {
-		s.SetStatus(msg.CorrelationID, &model.RegistrationStatusResponse{
-			CorrelationID: msg.CorrelationID,
-			Status:        model.RegFailed,
-			Message:       "Workshop not found",
-		})
-		return err
-	}
-
-	// 2. TỐI ƯU HIỆU NĂNG: Chuẩn bị trước chữ ký số RSA NGOÀI Transaction
-	// Thay vì chiếm lock dòng 'workshops' rồi mới ngồi tính toán CPU và query User,
-	// ta tính toán chữ ký số xong xuôi trước khi mở Transaction Database!
-	var ticketSig *string
-	if s.crypto != nil {
-		studentID := s.getCachedStudentID(ctx, msg.UserID)
-		if studentID != "" {
-			qrData, err := s.crypto.SignTicket(studentID, msg.UserID, msg.WorkshopID)
-			if err == nil {
-				ticketSig = &qrData
-			} else {
-				log.Printf("[WORKER] RSA signing warning: %v", err)
-			}
-		}
-	}
-
-	regStatus := model.RegSuccess
-	reg := &model.Registration{
-		UserID:          msg.UserID,
-		WorkshopID:      msg.WorkshopID,
-		Status:          regStatus,
-		TicketSignature: ticketSig, // Đính kèm sẵn chữ ký số để chèn luôn trong câu lệnh INSERT
-	}
-
-	// 3. TRANSACTION SIÊU NGẮN (CHỈ DÀNH RIÊNG CHO TRỪ GHẾ + TẠO VÉ)
 	tx, err := s.workshopRepo.GetPool().Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return "", err
 	}
 	defer tx.Rollback(ctx)
-
-	// SELECT FOR UPDATE - Pessimistic Lock (Khóa dòng workshop)
-	_, err = s.workshopRepo.DecrementSeatWithLock(ctx, tx, msg.WorkshopID)
+	var status string
+	var seats int
+	var start, end time.Time
+	var approved bool
+	err = tx.QueryRow(ctx, `SELECT w.status,w.available_seats,w.registration_start_time,w.registration_end_time,(w.company_id IS NULL OR c.status='APPROVED') FROM workshops w LEFT JOIN companies c ON c.id=w.company_id WHERE w.id=$1 FOR UPDATE OF w`, workshopID).Scan(&status, &seats, &start, &end, &approved)
 	if err != nil {
-		// DB says no seats! (Inconsistency with Redis)
-		// We should release the tentative seat we took in Redis
-		_ = s.seatLimiter.ReleaseSeat(ctx, msg.WorkshopID)
-
-		s.SetStatus(msg.CorrelationID, &model.RegistrationStatusResponse{
-			CorrelationID: msg.CorrelationID,
-			Status:        model.RegRejected,
-			Message:       "No available seats (Database verified)",
-		})
+		return "", fmt.Errorf("workshop not found")
+	}
+	if status != "PUBLISHED" || !approved || time.Now().Before(start) || time.Now().After(end) {
+		return "", fmt.Errorf("workshop chưa mở hoặc đã đóng đăng ký")
+	}
+	var existing string
+	err = tx.QueryRow(ctx, "SELECT id FROM registration_requests WHERE user_id=$1 AND workshop_id=$2 AND status='PROCESSING'", userID, workshopID).Scan(&existing)
+	if err == nil {
+		return existing, nil
+	}
+	if err != pgx.ErrNoRows {
+		return "", err
+	}
+	var registered bool
+	if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM registrations WHERE user_id=$1 AND workshop_id=$2 AND status='SUCCESS')", userID, workshopID).Scan(&registered); err != nil {
+		return "", err
+	}
+	if registered {
+		return "", fmt.Errorf("Bạn đã đăng ký workshop này")
+	}
+	if seats <= 0 {
+		return "", fmt.Errorf("Workshop đã đủ chỗ")
+	}
+	id := uuid.NewString()
+	if _, err = tx.Exec(ctx, "UPDATE workshops SET available_seats=available_seats-1 WHERE id=$1", workshopID); err != nil {
+		return "", err
+	}
+	if _, err = tx.Exec(ctx, "INSERT INTO registration_requests(id,user_id,workshop_id) VALUES($1,$2,$3)", id, userID, workshopID); err != nil {
+		return "", err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	s.invalidateWorkshop(ctx, workshopID)
+	msg := model.QueueMessage{CorrelationID: id, UserID: userID, WorkshopID: workshopID, Action: "REGISTER"}
+	if s.publisher != nil {
+		if err = s.publisher.Publish(ctx, queue.RegistrationQueue, msg); err == nil {
+			_, _ = s.workshopRepo.GetPool().Exec(ctx, "UPDATE registration_requests SET published=true WHERE id=$1", id)
+		}
+	}
+	// The outbox republishes unpublished reservations after crashes or broker failures.
+	return id, nil
+}
+func (s *RegistrationService) ProcessRegistration(ctx context.Context, msg model.QueueMessage) error {
+	var attempts int
+	err := s.workshopRepo.GetPool().QueryRow(ctx, "UPDATE registration_requests SET attempts=attempts+1 WHERE id=$1 AND user_id=$2 AND workshop_id=$3 AND status='PROCESSING' RETURNING attempts", msg.CorrelationID, msg.UserID, msg.WorkshopID).Scan(&attempts)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
-
-	// INSERT vé trực tiếp (kèm sẵn ticket_signature trong 1 câu lệnh duy nhất)
-	if err := s.regRepo.Create(ctx, tx, reg); err != nil {
-		tx.Rollback(ctx)
-
-		// Xử lý lỗi trùng lặp (Idempotency hoặc do UPSERT bị loại trừ)
-		if strings.Contains(err.Error(), "uq_user_workshop") || strings.Contains(err.Error(), "no rows in result set") {
-			log.Printf("[WORKER] Duplicate registration attempt: user=%s workshop=%s", msg.UserID, msg.WorkshopID)
-			s.SetStatus(msg.CorrelationID, &model.RegistrationStatusResponse{
-				CorrelationID: msg.CorrelationID,
-				Status:        model.RegFailed,
-				Message:       "Bạn đã đăng ký Workshop này rồi.",
-			})
-			return nil // Trả về nil để ACK tin nhắn, không retry nữa
+	if attempts > 3 {
+		return s.finishFailed(ctx, msg, "Đã hết số lần xử lý")
+	}
+	var signature *string
+	if s.crypto != nil {
+		sid := s.getCachedStudentID(ctx, msg.UserID)
+		qr, e := s.crypto.SignTicket(sid, msg.UserID, msg.WorkshopID)
+		if e != nil {
+			return e
 		}
-
-		s.SetStatus(msg.CorrelationID, &model.RegistrationStatusResponse{
-			CorrelationID: msg.CorrelationID,
-			Status:        model.RegFailed,
-			Message:       "Lỗi hệ thống khi lưu bản ghi đăng ký",
-		})
-		return fmt.Errorf("failed to create registration: %w", err)
+		signature = &qr
 	}
-
-	// 4. COMMIT NGAY LẬP TỨC: GIẢI PHÓNG TOÀN BỘ KHÓA DÒNG TRÊN WORKSHOP!
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	tx, err := s.workshopRepo.GetPool().Begin(ctx)
+	if err != nil {
+		return err
 	}
-
-	// 5. NẾU CHƯA KÝ ĐƯỢC CHỮ KÝ TRƯỚC ĐÓ (FALLBACK), CẬP NHẬT NGOÀI TRANSACTION:
-	if reg.TicketSignature == nil && s.crypto != nil {
-		go func(regID, userID, workshopID string) {
-			studentID := s.getCachedStudentID(context.Background(), userID)
-			if studentID != "" {
-				qrData, err := s.crypto.SignTicket(studentID, userID, workshopID)
-				if err == nil {
-					_, _ = s.workshopRepo.GetPool().Exec(context.Background(),
-						"UPDATE registrations SET ticket_signature = $1 WHERE id = $2", qrData, regID)
-				}
-			}
-		}(reg.ID, msg.UserID, msg.WorkshopID)
+	defer tx.Rollback(ctx)
+	var workshopStatus, title string
+	var approved bool
+	if err = tx.QueryRow(ctx, `SELECT w.status,w.title,(w.company_id IS NULL OR c.status='APPROVED') FROM workshops w LEFT JOIN companies c ON c.id=w.company_id WHERE w.id=$1 FOR UPDATE OF w`, msg.WorkshopID).Scan(&workshopStatus, &title, &approved); err != nil {
+		return err
 	}
-
-	log.Printf("[WORKER] Registration finalized: id=%s status=%s", reg.ID, regStatus)
-
-	// Release waiting room slot so next queued user can be promoted
-	if err := s.waitingRoom.ReleaseAccess(ctx, msg.WorkshopID, msg.UserID); err != nil {
-		log.Printf("[WAITING_ROOM] Failed to release access (non-fatal): %v", err)
+	var state, userID, workshopID string
+	if err = tx.QueryRow(ctx, "SELECT status,user_id,workshop_id FROM registration_requests WHERE id=$1 FOR UPDATE", msg.CorrelationID).Scan(&state, &userID, &workshopID); err != nil {
+		return err
 	}
-
-	s.SetStatus(msg.CorrelationID, &model.RegistrationStatusResponse{
-		CorrelationID: msg.CorrelationID,
-		Status:        regStatus,
-		Registration:  reg,
-		Message:       "Registration SUCCESS",
-	})
-
-	// Publish notification event
-	notifEvent := model.NotificationEvent{
-		EventID:         fmt.Sprintf("REG_SUCCESS_%s", reg.ID),
-		UserID:          msg.UserID,
-		RegistrationID:  reg.ID,
-		Type:            "REGISTRATION_SUCCESS",
-		WorkshopTitle:   workshop.Title,
-		TicketSignature: "",
+	if state != "PROCESSING" {
+		return nil
 	}
-	if reg.TicketSignature != nil {
-		notifEvent.TicketSignature = *reg.TicketSignature
+	if userID != msg.UserID || workshopID != msg.WorkshopID {
+		return fmt.Errorf("invalid queue identity")
 	}
-	_ = s.publisher.Publish(ctx, queue.NotificationQueue, notifEvent)
-
+	if workshopStatus != "PUBLISHED" || !approved {
+		tx.Rollback(ctx)
+		return s.finishFailed(ctx, msg, "Workshop đã đóng hoặc doanh nghiệp ngừng hoạt động")
+	}
+	reg := &model.Registration{UserID: userID, WorkshopID: workshopID, Status: model.RegSuccess, TicketSignature: signature}
+	if err = s.regRepo.Create(ctx, tx, reg); err != nil {
+		tx.Rollback(ctx)
+		if err == pgx.ErrNoRows {
+			return s.finishFailed(ctx, msg, "Bạn đã có vé workshop này")
+		}
+		return err
+	}
+	if _, err = tx.Exec(ctx, "UPDATE registration_requests SET status='SUCCESS',registration_id=$1,message='Đăng ký thành công',updated_at=now() WHERE id=$2", reg.ID, msg.CorrelationID); err != nil {
+		return err
+	}
+	// In-app notification is committed with the ticket, independently of email delivery.
+	if _, err = tx.Exec(ctx, `INSERT INTO notifications(user_id,registration_id,channel,title,content,status,event_id,link) VALUES($1,$2,'WEB',$3,$4,'SENT',$5,'/') ON CONFLICT(event_id,channel) DO NOTHING`, userID, reg.ID, "Đăng ký thành công: "+title, "Vé workshop của bạn đã sẵn sàng.", "REG_SUCCESS_"+msg.CorrelationID); err != nil {
+		return err
+	}
+	event := model.NotificationEvent{EventID: "REG_SUCCESS_" + msg.CorrelationID, UserID: userID, RegistrationID: reg.ID, WorkshopTitle: title, Type: "REGISTRATION_SUCCESS", Metadata: map[string]string{"email_only": "true"}}
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, "INSERT INTO notification_outbox(event_id,payload) VALUES($1,$2) ON CONFLICT DO NOTHING", event.EventID, data); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.invalidateWorkshop(ctx, workshopID)
+	s.releaseWaiting(ctx, workshopID, userID)
 	return nil
 }
-
-const registrationStatusTTL = 1 * time.Hour
-
-func (s *RegistrationService) GetStatus(correlationID string) *model.RegistrationStatusResponse {
-	if s.redis == nil || correlationID == "" {
-		return nil
-	}
-	cacheKey := fmt.Sprintf("reg:status:%s", correlationID)
-	val, err := s.redis.Get(context.Background(), cacheKey).Result()
-	if err != nil || val == "" {
-		return nil
-	}
-	var status model.RegistrationStatusResponse
-	if err := json.Unmarshal([]byte(val), &status); err != nil {
-		log.Printf("[REG_SERVICE] Failed to unmarshal status for %s: %v", correlationID, err)
-		return nil
-	}
-	return &status
-}
-
-func (s *RegistrationService) SetStatus(correlationID string, status *model.RegistrationStatusResponse) {
-	if s.redis == nil || status == nil || correlationID == "" {
-		return
-	}
-	data, err := json.Marshal(status)
+func (s *RegistrationService) finishFailed(ctx context.Context, msg model.QueueMessage, reason string) error {
+	tx, err := s.workshopRepo.GetPool().Begin(ctx)
 	if err != nil {
-		log.Printf("[REG_SERVICE] Failed to marshal status for %s: %v", correlationID, err)
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "SELECT id FROM workshops WHERE id=$1 FOR UPDATE", msg.WorkshopID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, "UPDATE registration_requests SET status='FAILED',message=$1,updated_at=now() WHERE id=$2 AND user_id=$3 AND workshop_id=$4 AND status='PROCESSING'", reason, msg.CorrelationID, msg.UserID, msg.WorkshopID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		if _, err = tx.Exec(ctx, "UPDATE workshops SET available_seats=LEAST(available_seats+1,capacity) WHERE id=$1", msg.WorkshopID); err != nil {
+			return err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.invalidateWorkshop(ctx, msg.WorkshopID)
+	s.releaseWaiting(ctx, msg.WorkshopID, msg.UserID)
+	return nil
+}
+func (s *RegistrationService) FailAfterRetries(ctx context.Context, msg model.QueueMessage) bool {
+	var attempts int
+	if s.workshopRepo.GetPool().QueryRow(ctx, "SELECT attempts FROM registration_requests WHERE id=$1", msg.CorrelationID).Scan(&attempts) != nil {
+		return false
+	}
+	return attempts >= 3 && s.finishFailed(ctx, msg, "Không thể hoàn tất đăng ký sau 3 lần xử lý") == nil
+}
+func (s *RegistrationService) PublishPending(ctx context.Context) {
+	if s.publisher == nil {
 		return
 	}
-	cacheKey := fmt.Sprintf("reg:status:%s", correlationID)
-	if err := s.redis.Set(context.Background(), cacheKey, data, registrationStatusTTL).Err(); err != nil {
-		log.Printf("[REG_SERVICE] Failed to set status in Redis for %s: %v", correlationID, err)
+	rows, err := s.workshopRepo.GetPool().Query(ctx, "SELECT id,user_id,workshop_id FROM registration_requests WHERE NOT published AND status='PROCESSING' ORDER BY created_at LIMIT 50")
+	if err != nil {
+		return
+	}
+	messages := []model.QueueMessage{}
+	for rows.Next() {
+		var m model.QueueMessage
+		if rows.Scan(&m.CorrelationID, &m.UserID, &m.WorkshopID) == nil {
+			m.Action = "REGISTER"
+			messages = append(messages, m)
+		}
+	}
+	rows.Close()
+	for _, msg := range messages {
+		if s.publisher.Publish(ctx, queue.RegistrationQueue, msg) == nil {
+			_, _ = s.workshopRepo.GetPool().Exec(ctx, "UPDATE registration_requests SET published=true WHERE id=$1", msg.CorrelationID)
+		}
+	}
+	emailRows, err := s.workshopRepo.GetPool().Query(ctx, "SELECT event_id,payload FROM notification_outbox WHERE NOT published ORDER BY created_at LIMIT 50")
+	if err != nil {
+		return
+	}
+	events := []model.NotificationEvent{}
+	for emailRows.Next() {
+		var id string
+		var data []byte
+		if emailRows.Scan(&id, &data) == nil {
+			var event model.NotificationEvent
+			if json.Unmarshal(data, &event) == nil {
+				events = append(events, event)
+			}
+		}
+	}
+	emailRows.Close()
+	for _, event := range events {
+		if s.publisher.Publish(ctx, queue.NotificationQueue, event) == nil {
+			_, _ = s.workshopRepo.GetPool().Exec(ctx, "UPDATE notification_outbox SET published=true WHERE event_id=$1", event.EventID)
+		}
+	}
+
+}
+func (s *RegistrationService) GetStatus(ctx context.Context, userID, id string) (*model.RegistrationStatusResponse, error) {
+	response := &model.RegistrationStatusResponse{CorrelationID: id}
+	var registrationID *string
+	err := s.workshopRepo.GetPool().QueryRow(ctx, "SELECT status,message,registration_id FROM registration_requests WHERE id=$1 AND user_id=$2", id, userID).Scan(&response.Status, &response.Message, &registrationID)
+	if err != nil {
+		return nil, err
+	}
+	if registrationID != nil {
+		response.Registration, err = s.regRepo.FindByID(ctx, *registrationID)
+	}
+	return response, err
+}
+func (s *RegistrationService) invalidateWorkshop(ctx context.Context, id string) {
+	if s.redis != nil {
+		_ = s.redis.Del(ctx, "workshop:meta:"+id, "workshop:seats:"+id).Err()
+	}
+}
+func (s *RegistrationService) releaseWaiting(ctx context.Context, workshopID, userID string) {
+	if s.waitingRoom != nil {
+		_ = s.waitingRoom.ReleaseAccess(ctx, workshopID, userID)
 	}
 }
 
@@ -417,43 +403,43 @@ func (s *RegistrationService) GetByWorkshop(ctx context.Context, workshopID stri
 
 // CancelRegistration cancels an existing registration and frees up the seat
 func (s *RegistrationService) CancelRegistration(ctx context.Context, userID, registrationID string) error {
-	// 1. Fetch registration
 	reg, err := s.regRepo.FindByID(ctx, registrationID)
 	if err != nil {
-		return fmt.Errorf("registration not found: %w", err)
+		return err
 	}
-
-	// 2. Validate ownership
 	if reg.UserID != userID {
-		return fmt.Errorf("unauthorized to cancel this registration")
+		return fmt.Errorf("không có quyền hủy vé")
 	}
-
-	// 3. Validate status
-	if reg.Status != model.RegSuccess {
-		return fmt.Errorf("only SUCCESS registrations can be cancelled")
-	}
-
-	// 4. Update status in DB
-	err = s.regRepo.UpdateStatus(ctx, registrationID, model.RegCancelled)
+	tx, err := s.workshopRepo.GetPool().Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to cancel registration: %w", err)
+		return err
 	}
-
-	// 5. Increment available seats in DB
-	err = s.workshopRepo.IncrementSeat(ctx, reg.WorkshopID)
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "SELECT id FROM workshops WHERE id=$1 FOR UPDATE", reg.WorkshopID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, "UPDATE registrations SET status='CANCELLED',updated_at=now() WHERE id=$1 AND user_id=$2 AND status='SUCCESS' AND NOT is_checked_in", registrationID, userID)
 	if err != nil {
-		log.Printf("[ERROR] Failed to increment seat in DB for workshop %s after cancellation: %v", reg.WorkshopID, err)
-		// We log but don't fail the cancellation if DB increment fails, although this is rare.
+		return err
 	}
-
-	// 6. Increment available seats in Redis Cache
-	err = s.seatLimiter.ReleaseSeat(ctx, reg.WorkshopID)
-	if err != nil {
-		log.Printf("[ERROR] Failed to release seat in Redis for workshop %s: %v", reg.WorkshopID, err)
+	if tag.RowsAffected() == 0 {
+		var state string
+		var checked bool
+		if err = tx.QueryRow(ctx, "SELECT status,is_checked_in FROM registrations WHERE id=$1", registrationID).Scan(&state, &checked); err != nil {
+			return err
+		}
+		if state == "CANCELLED" {
+			return nil
+		}
+		return fmt.Errorf("không thể hủy vé đã sử dụng hoặc không còn hiệu lực")
 	}
-
-	log.Printf("[REGISTRATION] Cancelled: registration=%s user=%s workshop=%s", registrationID, userID, reg.WorkshopID)
-
+	if _, err = tx.Exec(ctx, "UPDATE workshops SET available_seats=LEAST(available_seats+1,capacity) WHERE id=$1", reg.WorkshopID); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.invalidateWorkshop(ctx, reg.WorkshopID)
 	return nil
 }
 

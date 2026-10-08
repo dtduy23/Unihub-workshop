@@ -31,7 +31,7 @@ func (s *CheckinService) LiveCheckin(ctx context.Context, req *model.CheckinRequ
 
 // BulkSync processes offline check-in records sent from mobile app
 func (s *CheckinService) BulkSync(ctx context.Context, records []model.OfflineCheckinRecord) ([]string, []string) {
-	var synced, failed []string
+	synced, failed := []string{}, []string{}
 
 	for _, rec := range records {
 		reg, err := s.regRepo.FindByStudentAndWorkshop(ctx, rec.StudentID, rec.WorkshopID)
@@ -41,18 +41,10 @@ func (s *CheckinService) BulkSync(ctx context.Context, records []model.OfflineCh
 			continue
 		}
 
-		// Conflict resolution: keep earliest timestamp
-		if reg.IsCheckedIn {
-			existingTime := reg.UpdatedAt.Unix()
-			if rec.ScannedAt >= existingTime {
-				log.Printf("[CHECKIN_SYNC] Record %s skipped - existing check-in is earlier", rec.ID)
-				synced = append(synced, rec.ID) // Mark as synced since it's already checked in
-				continue
-			}
+		if rec.ID == "" || rec.ScannedAt <= 0 || rec.ScannedAt > time.Now().Add(5*time.Minute).Unix() {
+			failed = append(failed, rec.ID)
+			continue
 		}
-
-		scannedAt := time.Unix(rec.ScannedAt, 0)
-		_ = scannedAt
 		if err := s.regRepo.CheckInWithTime(ctx, reg.ID, rec.ScannedAt); err != nil {
 			log.Printf("[CHECKIN_SYNC] Record %s failed: %v", rec.ID, err)
 			failed = append(failed, rec.ID)
@@ -64,4 +56,13 @@ func (s *CheckinService) BulkSync(ctx context.Context, records []model.OfflineCh
 	}
 
 	return synced, failed
+}
+
+func (s *CheckinService) Allowed(ctx context.Context, userID string, role model.Role, workshopID string) bool {
+	if role == model.RoleAdmin {
+		return true
+	}
+	var ok bool
+	_ = s.regRepo.GetPool().QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM workshop_staff WHERE user_id=$1 AND workshop_id=$2)", userID, workshopID).Scan(&ok)
+	return ok
 }

@@ -25,6 +25,7 @@ import { useRegistration } from "@/hooks/use-registration"
 import { usePresenceHeartbeat } from "@/hooks/use-presence-heartbeat"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { auth } from "@/lib/api-client"
 
 interface WorkshopDetailDialogProps {
   workshop: Workshop | null
@@ -89,7 +90,9 @@ export function WorkshopDetailDialog({
 
   // Cấu hình nút tương tự WorkshopCard
   const getButtonConfig = () => {
-    if (workshop.status === "DELETED") {
+    if (!["STUDENT", "ADMIN"].includes(String(auth.getUser()?.role || ""))) return { label: "Chỉ sinh viên được đăng ký", variant: "outline" as const, disabled: true }
+    if (!["PUBLISHED", "CLOSED", "DELETED", "CANCELLED"].includes(workshop.status)) return { label: "Chưa công bố", variant: "outline" as const, disabled: true }
+    if (["DELETED", "CANCELLED"].includes(workshop.status)) {
       return { 
         label: "ĐÃ HỦY", 
         variant: "destructive" as const, 

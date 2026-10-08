@@ -8,6 +8,7 @@ export interface Notification {
   channel: "EMAIL" | "WEB"
   title: string
   content: string
+  link?: string
   status: "PENDING" | "SENT" | "FAILED"
   createdAt: string
 }

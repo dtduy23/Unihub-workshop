@@ -83,7 +83,7 @@ export default function StaffCheckinPage() {
   useEffect(() => {
     const fetchWorkshops = async () => {
       try {
-        const response = await api.get<Workshop[]>('/api/v1/workshops')
+        const response = await api.get<Workshop[]>('/api/v1/staff/workshops')
         const data = (response.data || []) as Workshop[]
 
         // Thêm trạng thái thời gian thực
@@ -222,8 +222,8 @@ export default function StaffCheckinPage() {
   }
 
   // Logout
-  const handleLogout = () => {
-    auth.clearSession()
+  const handleLogout = async () => {
+    await auth.clearSession()
     toast.success('Đăng xuất thành công')
     router.push('/login')
   }

@@ -11,9 +11,10 @@ import (
 type Role string
 
 const (
-	RoleStudent Role = "STUDENT"
-	RoleStaff   Role = "STAFF"
-	RoleAdmin   Role = "ADMIN"
+	RoleStudent  Role = "STUDENT"
+	RoleStaff    Role = "STAFF"
+	RoleBusiness Role = "BUSINESS"
+	RoleAdmin    Role = "ADMIN"
 )
 
 type User struct {
@@ -24,6 +25,7 @@ type User struct {
 	Email        *string   `json:"email"`
 	Phone        *string   `json:"phone,omitempty"`
 	Role         Role      `json:"role"`
+	AuthVersion  int       `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -35,6 +37,10 @@ type User struct {
 type WorkshopStatus string
 
 const (
+	WorkshopDraft     WorkshopStatus = "DRAFT"
+	WorkshopPending   WorkshopStatus = "PENDING_REVIEW"
+	WorkshopRejected  WorkshopStatus = "REJECTED"
+	WorkshopCancelled WorkshopStatus = "CANCELLED"
 	WorkshopPublished WorkshopStatus = "PUBLISHED"
 	WorkshopClosed    WorkshopStatus = "CLOSED"
 	WorkshopDeleted   WorkshopStatus = "DELETED"
@@ -42,6 +48,16 @@ const (
 
 type Workshop struct {
 	ID                    string         `json:"id"`
+	CompanyID             *string        `json:"company_id,omitempty"`
+	CompanyName           string         `json:"company_name,omitempty"`
+	CreatedBy             *string        `json:"created_by,omitempty"`
+	CoverURL              string         `json:"cover_url"`
+	Audience              string         `json:"audience"`
+	Benefits              string         `json:"benefits"`
+	Preparation           string         `json:"preparation"`
+	Agenda                string         `json:"agenda"`
+	Format                string         `json:"format"`
+	ReviewReason          string         `json:"review_reason"`
 	Title                 string         `json:"title"`
 	Description           *string        `json:"description,omitempty"`
 	Speaker               *string        `json:"speaker"`
@@ -80,6 +96,7 @@ type Registration struct {
 	Status          RegistrationStatus `json:"status"`
 	TicketSignature *string            `json:"ticket_signature,omitempty"`
 	IsCheckedIn     bool               `json:"is_checked_in"`
+	CheckedInAt     *time.Time         `json:"checked_in_at,omitempty"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
 }
@@ -130,6 +147,7 @@ type Notification struct {
 	ErrorMessage   *string             `json:"error_message,omitempty"`
 	CreatedAt      time.Time           `json:"created_at"`
 	SentAt         *time.Time          `json:"sent_at,omitempty"`
+	Link           string              `json:"link"`
 }
 
 // ==========================================
@@ -200,6 +218,13 @@ type RegistrationStatusResponse struct {
 }
 
 type CreateWorkshopRequest struct {
+	Description           string  `json:"description"`
+	CoverURL              string  `json:"cover_url"`
+	Audience              string  `json:"audience"`
+	Benefits              string  `json:"benefits"`
+	Preparation           string  `json:"preparation"`
+	Agenda                string  `json:"agenda"`
+	Format                string  `json:"format"`
 	Title                 string  `json:"title"`
 	Speaker               string  `json:"speaker"`
 	Room                  string  `json:"room"`
@@ -214,6 +239,13 @@ type CreateWorkshopRequest struct {
 }
 
 type UpdateWorkshopRequest struct {
+	Description           *string  `json:"description,omitempty"`
+	CoverURL              *string  `json:"cover_url,omitempty"`
+	Audience              *string  `json:"audience,omitempty"`
+	Benefits              *string  `json:"benefits,omitempty"`
+	Preparation           *string  `json:"preparation,omitempty"`
+	Agenda                *string  `json:"agenda,omitempty"`
+	Format                *string  `json:"format,omitempty"`
 	Title                 *string  `json:"title,omitempty"`
 	Speaker               *string  `json:"speaker,omitempty"`
 	Room                  *string  `json:"room,omitempty"`
@@ -267,4 +299,8 @@ type APIResponse struct {
 	Message string      `json:"message,omitempty"`
 	Data    interface{} `json:"data,omitempty"`
 	Error   string      `json:"error,omitempty"`
+}
+
+func (r Role) Valid() bool {
+	return r == RoleStudent || r == RoleStaff || r == RoleBusiness || r == RoleAdmin
 }

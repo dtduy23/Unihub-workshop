@@ -35,7 +35,7 @@ export function useAuth() {
         token: string;
         user: {
           id: string;
-          user_id: string;
+          student_id: string;
           full_name: string;
           email: string;
           role: string;
@@ -54,7 +54,7 @@ export function useAuth() {
 
       // Kiểm tra quyền — Chỉ Staff/Admin được vào Mobile
       if (data.user.role !== 'STAFF' && data.user.role !== 'ADMIN') {
-        throw new Error(`Tài khoản sinh viên (${data.user.user_id}) không có quyền vào ứng dụng Staff`);
+        throw new Error(`Ứng dụng check-in chỉ dành cho nhân sự và quản trị viên`);
       }
 
       // Lưu JWT token
@@ -63,7 +63,7 @@ export function useAuth() {
       // Tạo session và lưu vào AsyncStorage
       const session: UserSession = {
         id: data.user.id,
-        user_id: data.user.user_id,
+        user_id: data.user.student_id,
         full_name: data.user.full_name,
         email: data.user.email,
         role: data.user.role,

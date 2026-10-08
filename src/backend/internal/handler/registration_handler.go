@@ -88,8 +88,8 @@ func (h *RegistrationHandler) GetWaitingRoomStatus(w http.ResponseWriter, r *htt
 // GetStatus polls the registration status by correlation ID
 func (h *RegistrationHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	correlationID := getURLParam(r, "correlationId")
-	status := h.regService.GetStatus(correlationID)
-	if status == nil {
+	status, err := h.regService.GetStatus(r.Context(), getUserID(r), correlationID)
+	if err != nil || status == nil {
 		errorResponse(w, http.StatusNotFound, "Status not found")
 		return
 	}

@@ -134,7 +134,7 @@ export async function verifySignature(payload: QRPayload): Promise<boolean> {
       'RSASSA-PKCS1-v1_5',
       key,
       sigBytes.buffer,
-      dataBytes.buffer
+      dataBytes.buffer as ArrayBuffer
     )
 
     return isValid

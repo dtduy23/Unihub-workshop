@@ -5,8 +5,12 @@ import (
 	"fmt"
 
 	"crypto/rand"
-	"math/big"
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
+	"math/big"
+	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"unihub-workshop/internal/middleware"
@@ -37,7 +41,7 @@ func (s *AuthService) Login(ctx context.Context, req *model.LoginRequest) (*mode
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
-	token, err := middleware.GenerateJWT(s.secret, user.ID, user.Role)
+	token, err := middleware.GenerateJWT(s.secret, user.ID, user.Role, user.AuthVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
@@ -64,51 +68,47 @@ func generateRandomPassword(length int) (string, error) {
 
 func (s *AuthService) ForgotPassword(ctx context.Context, identifier string) error {
 	user, err := s.userRepo.FindByStudentID(ctx, identifier)
+	if err != nil || user.Email == nil || *user.Email == "" {
+		return nil
+	}
+	token, err := generateRandomPassword(64)
 	if err != nil {
-		return fmt.Errorf("user not found")
+		return err
 	}
-
-	// Generate 32 char random password
-	newPassword, err := generateRandomPassword(32)
-	if err != nil {
-		return fmt.Errorf("failed to generate random password: %w", err)
+	hash := sha256.Sum256([]byte(token))
+	if err = s.userRepo.StoreReset(ctx, user.ID, hex.EncodeToString(hash[:])); err != nil {
+		return err
 	}
-
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
+	base := strings.TrimRight(os.Getenv("WEB_URL"), "/")
+	if base == "" {
+		base = "http://localhost:3000"
 	}
-
-	// Update DB
-	err = s.userRepo.UpdatePassword(ctx, user.ID, string(hashedPassword))
-	if err != nil {
-		return fmt.Errorf("failed to update password: %w", err)
+	event := model.NotificationEvent{EventID: uuid.NewString(), UserID: user.ID, Type: "PASSWORD_RESET", Metadata: map[string]string{"reset_url": base + "/reset-password?token=" + token}}
+	if s.publisher == nil {
+		return fmt.Errorf("email service unavailable")
 	}
-
-	// Send notification if email exists
-	if user.Email != nil && *user.Email != "" && s.publisher != nil {
-		event := model.NotificationEvent{
-			EventID:       uuid.New().String(),
-			UserID:        user.ID,
-			Type:          "FORGOT_PASSWORD",
-			WorkshopTitle: "System",
-			Metadata: map[string]string{
-				"new_password": newPassword,
-			},
-		}
-
-		err = s.publisher.Publish(ctx, queue.NotificationQueue, event)
-		if err != nil {
-			log.Printf("[AUTH] Failed to publish forgot password notification: %v", err)
-			// Return nil anyway because password is changed successfully
-		}
+	if err = s.publisher.Publish(ctx, queue.NotificationQueue, event); err != nil {
+		log.Printf("[AUTH] reset delivery failed: %v", err)
+		return err
 	}
-
 	return nil
+}
+func (s *AuthService) ResetPassword(ctx context.Context, token, password string) error {
+	if len(token) != 64 || len(password) < 8 || len(password) > 72 {
+		return fmt.Errorf("mật khẩu phải có 8–72 ký tự; liên kết phải hợp lệ")
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256([]byte(token))
+	return s.userRepo.ConsumeReset(ctx, hex.EncodeToString(sum[:]), string(hashed))
 }
 
 func (s *AuthService) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
+	if len(newPassword) < 8 || len(newPassword) > 72 {
+		return fmt.Errorf("mật khẩu phải có 8–72 ký tự")
+	}
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("user not found")

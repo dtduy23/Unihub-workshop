@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"unihub-workshop/internal/middleware"
 
 	"unihub-workshop/internal/model"
 	"unihub-workshop/internal/service"
@@ -23,6 +24,10 @@ func (h *CheckinHandler) LiveCheckin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.checkinService.Allowed(r.Context(), getUserID(r), middleware.GetUserRole(r.Context()), req.WorkshopID) {
+		errorResponse(w, 403, "Workshop không được phân công")
+		return
+	}
 	if err := h.checkinService.LiveCheckin(r.Context(), &req); err != nil {
 		errorResponse(w, http.StatusBadRequest, err.Error())
 		return
@@ -44,6 +49,12 @@ func (h *CheckinHandler) BulkSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for _, record := range req.Records {
+		if !h.checkinService.Allowed(r.Context(), getUserID(r), middleware.GetUserRole(r.Context()), record.WorkshopID) {
+			errorResponse(w, 403, "Workshop không được phân công")
+			return
+		}
+	}
 	synced, failed := h.checkinService.BulkSync(r.Context(), req.Records)
 
 	writeJSON(w, http.StatusOK, model.APIResponse{

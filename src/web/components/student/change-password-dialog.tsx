@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { api } from "@/lib/api-client"
+import { api, auth } from "@/lib/api-client"
 
 interface ChangePasswordDialogProps {
   open: boolean
@@ -41,7 +41,9 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
       })
       
       if (res.success) {
-        toast.success("Đổi mật khẩu thành công")
+        toast.success("Đã đổi mật khẩu. Vui lòng đăng nhập lại.")
+        await auth.clearSession()
+        window.location.href = "/login"
         onOpenChange(false)
         setOldPassword("")
         setNewPassword("")
@@ -83,7 +85,9 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
             <Input
               id="newPassword"
               type="password"
-              placeholder="Nhập mật khẩu mới"
+              placeholder="Từ 8 ký tự"
+              minLength={8}
+              maxLength={72}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               disabled={isLoading}

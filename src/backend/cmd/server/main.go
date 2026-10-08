@@ -133,6 +133,9 @@ func main() {
 	notifHandler := handler.NewNotificationHandler(notifService)
 	adminHandler := handler.NewAdminHandler(batchService, aiService, userRepo, cfg.CSVImportDir)
 	aiHandler := handler.NewAIHandler(aiService)
+	communityRepo := repository.NewCommunityRepo(pgPool)
+	communityService := service.NewCommunityService(communityRepo, workshopService, workshopRepo)
+	communityHandler := handler.NewCommunityHandler(communityService)
 
 	// Initialize rate limiter
 	redisBucket := ratelimiter.NewRedisTokenBucket(redisClient, cfg.RateLimitCapacity, cfg.RateLimitRefillRate, cfg.RateLimitTTL)
@@ -160,21 +163,24 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "time": time.Now().Format(time.RFC3339)})
 	})
 
-	// Public routes
-	r.Post("/api/v1/auth/login", authHandler.Login)
-	r.Get("/api/v1/auth/public-key", authHandler.GetPublicKey)
-	r.Post("/api/v1/auth/forgot-password", authHandler.ForgotPassword)
-
-	// Public workshop listing (no auth needed for browsing)
-	r.Get("/api/v1/workshops", workshopHandler.List)
-	r.Get("/api/v1/workshops/{id}", workshopHandler.GetByID)
-	r.Get("/api/v1/workshops/{id}/presence", workshopHandler.GetPresence)
+	// Only authentication/recovery endpoints are available without a session.
+	r.Group(func(r chi.Router) {
+		r.Use(rateLimitMW.Handler)
+		r.Post("/api/v1/auth/login", authHandler.Login)
+		r.Post("/api/v1/auth/forgot-password", authHandler.ForgotPassword)
+		r.Post("/api/v1/auth/reset-password", authHandler.ResetPassword)
+	})
 
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.AuthMiddleware(cfg.AuthSecret))
+		r.Use(middleware.AuthMiddleware(cfg.AuthSecret, userRepo.FindByID))
 		r.Use(rateLimitMW.Handler)
 
+		communityHandler.Register(r)
+		r.Get("/api/v1/auth/public-key", authHandler.GetPublicKey)
+		r.Get("/api/v1/workshops", workshopHandler.List)
+		r.Get("/api/v1/workshops/{id}", workshopHandler.GetByID)
+		r.Get("/api/v1/workshops/{id}/presence", workshopHandler.GetPresence)
 		// User profile
 		r.Get("/api/v1/auth/me", authHandler.GetMe)
 		r.Post("/api/v1/auth/change-password", authHandler.ChangePassword)
@@ -229,6 +235,18 @@ func main() {
 		go startRegistrationWorker(ctx, consumer, regService)
 		go startNotificationWorker(ctx, cfg.RabbitMQURL, notifService)
 		go startBatchImportScheduler(ctx, batchService)
+		go func() {
+			ticker := time.NewTicker(3 * time.Second)
+			defer ticker.Stop()
+			for {
+				regService.PublishPending(ctx)
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
 		log.Println("[SERVER] Background workers started")
 	}
 
@@ -309,17 +327,10 @@ func startRegistrationWorker(ctx context.Context, consumer *queue.Consumer, regS
 
 					if err := regService.ProcessRegistration(ctx, queueMsg); err != nil {
 						log.Printf("[WORKER] Processing failed: %v", err)
-						// Retry up to 3 times
-						retryCount := 0
-						if msg.Headers != nil {
-							if rc, ok := msg.Headers["x-retry-count"].(int64); ok {
-								retryCount = int(rc)
-							}
-						}
-						if retryCount < 3 {
-							msg.Nack(false, true) // Requeue
+						if regService.FailAfterRetries(ctx, queueMsg) {
+							msg.Nack(false, false)
 						} else {
-							msg.Nack(false, false) // Send to DLQ
+							msg.Nack(false, true)
 						}
 						continue
 					}
@@ -362,7 +373,12 @@ func startNotificationWorker(ctx context.Context, rabbitURL string, notifService
 				continue
 			}
 
-			notifService.Dispatch(ctx, event)
+			if err := notifService.Dispatch(ctx, event); err != nil {
+				log.Printf("[WORKER] Notification delivery failed: %v", err)
+				msg.Nack(false, true)
+				time.Sleep(time.Second)
+				continue
+			}
 			msg.Ack(false)
 		}
 	}

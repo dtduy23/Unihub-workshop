@@ -57,7 +57,7 @@ export function WorkshopGrid({
   return (
     <div className="space-y-6">
       {isOffline && (
-        <Alert variant="warning" className="bg-amber-50 border-amber-200">
+        <Alert className="bg-amber-50 border-amber-200">
           <WifiOff className="h-4 w-4 text-amber-600" />
           <AlertTitle className="text-amber-800">Chế độ Offline</AlertTitle>
           <AlertDescription className="text-amber-700">

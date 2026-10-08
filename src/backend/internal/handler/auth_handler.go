@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"unihub-workshop/internal/crypto"
@@ -22,6 +23,10 @@ func NewAuthHandler(authService *service.AuthService, rsaProvider *crypto.RSAPro
 }
 
 func (h *AuthHandler) GetPublicKey(w http.ResponseWriter, r *http.Request) {
+	if h.rsaProvider == nil {
+		errorResponse(w, 503, "QR signing is unavailable")
+		return
+	}
 	pubKey, err := h.rsaProvider.GetPublicKeyPEM()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, model.APIResponse{Error: "Failed to export public key"})
@@ -77,17 +82,13 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.authService.ForgotPassword(r.Context(), req.Identifier)
-	if err != nil {
-		// Even if error, we might want to just say success to prevent user enumeration, 
-		// but here we just return the error for simplicity.
-		errorResponse(w, http.StatusBadRequest, "Failed to process forgot password request: "+err.Error())
-		return
+	if err := h.authService.ForgotPassword(r.Context(), req.Identifier); err != nil {
+		log.Printf("[AUTH] password reset delivery unavailable: %v", err)
 	}
 
 	writeJSON(w, http.StatusOK, model.APIResponse{
 		Success: true,
-		Message: "Nếu tài khoản tồn tại, mật khẩu mới sẽ được gửi vào email của bạn.",
+		Message: "Nếu tài khoản tồn tại, liên kết đặt lại mật khẩu sẽ được gửi vào email của bạn.",
 	})
 }
 
@@ -119,4 +120,20 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "Đổi mật khẩu thành công",
 	})
+}
+
+func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if decodeJSON(r, &req) != nil {
+		errorResponse(w, 400, "Invalid request")
+		return
+	}
+	if err := h.authService.ResetPassword(r.Context(), req.Token, req.Password); err != nil {
+		errorResponse(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, model.APIResponse{Success: true, Message: "Mật khẩu đã cập nhật. Vui lòng đăng nhập lại."})
 }

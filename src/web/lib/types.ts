@@ -18,7 +18,8 @@
 export const Role = {
   STUDENT: 'STUDENT',
   STAFF: 'STAFF',
-  ORGANIZER: 'ORGANIZER',
+  BUSINESS: 'BUSINESS',
+  ADMIN: 'ADMIN',
 } as const
 export type Role = (typeof Role)[keyof typeof Role]
 
@@ -41,6 +42,10 @@ export const WorkshopStatus = {
   PUBLISHED: 'PUBLISHED',
   CANCELLED: 'CANCELLED',
   DRAFT: 'DRAFT',
+  CLOSED: 'CLOSED',
+  DELETED: 'DELETED',
+  PENDING_REVIEW: 'PENDING_REVIEW',
+  REJECTED: 'REJECTED',
 } as const
 export type WorkshopStatus = (typeof WorkshopStatus)[keyof typeof WorkshopStatus]
 
@@ -168,6 +173,8 @@ export type CreateWorkshopRequest = {
   description: string
   speaker: string
   room: string
+  registration_start_time: string
+  registration_end_time: string
   start_time: string
   end_time: string
   capacity: number
@@ -179,6 +186,8 @@ export type UpdateWorkshopRequest = {
   description?: string
   speaker?: string
   room?: string
+  registration_start_time?: string
+  registration_end_time?: string
   start_time?: string
   end_time?: string
   capacity?: number

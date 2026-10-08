@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"unihub-workshop/internal/model"
@@ -75,6 +76,12 @@ func (s *WorkshopService) GetByID(ctx context.Context, id string) (*model.Worksh
 }
 
 func (s *WorkshopService) Create(ctx context.Context, req *model.CreateWorkshopRequest) (*model.Workshop, error) {
+	return s.CreateFor(ctx, req, nil, nil)
+}
+func (s *WorkshopService) CreateFor(ctx context.Context, req *model.CreateWorkshopRequest, companyID, creator *string) (*model.Workshop, error) {
+	if err := ValidateWorkshop(req); err != nil {
+		return nil, err
+	}
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
 		return nil, fmt.Errorf("invalid start_time format: %w", err)
@@ -93,7 +100,9 @@ func (s *WorkshopService) Create(ctx context.Context, req *model.CreateWorkshopR
 	}
 
 	w := &model.Workshop{
-		Title:                 req.Title,
+		Title:       req.Title,
+		Description: &req.Description, CompanyID: companyID, CreatedBy: creator,
+		CoverURL: req.CoverURL, Audience: req.Audience, Benefits: req.Benefits, Preparation: req.Preparation, Agenda: req.Agenda, Format: req.Format,
 		Speaker:               &req.Speaker,
 		Room:                  req.Room,
 		StartTime:             startTime,
@@ -108,6 +117,9 @@ func (s *WorkshopService) Create(ctx context.Context, req *model.CreateWorkshopR
 		Status:                model.WorkshopPublished,
 	}
 
+	if companyID != nil {
+		w.Status = model.WorkshopDraft
+	}
 	if err := s.repo.Create(ctx, w); err != nil {
 		return nil, fmt.Errorf("failed to create workshop: %w", err)
 	}
@@ -115,6 +127,55 @@ func (s *WorkshopService) Create(ctx context.Context, req *model.CreateWorkshopR
 }
 
 func (s *WorkshopService) Update(ctx context.Context, id string, req *model.UpdateWorkshopRequest) error {
+	current, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	merged := WorkshopRequest(current)
+	if req.Title != nil {
+		merged.Title = *req.Title
+	}
+	if req.Description != nil {
+		merged.Description = *req.Description
+	}
+	if req.Speaker != nil {
+		merged.Speaker = *req.Speaker
+	}
+	if req.Room != nil {
+		merged.Room = *req.Room
+	}
+	if req.StartTime != nil {
+		merged.StartTime = *req.StartTime
+	}
+	if req.EndTime != nil {
+		merged.EndTime = *req.EndTime
+	}
+	if req.RegistrationStartTime != nil {
+		merged.RegistrationStartTime = *req.RegistrationStartTime
+	}
+	if req.RegistrationEndTime != nil {
+		merged.RegistrationEndTime = *req.RegistrationEndTime
+	}
+	if req.Capacity != nil {
+		merged.Capacity = *req.Capacity
+	}
+	if req.Price != nil {
+		merged.Price = *req.Price
+	}
+	if req.Format != nil {
+		merged.Format = *req.Format
+	}
+	if err := ValidateWorkshop(&merged); err != nil {
+		return err
+	}
+	if req.Status != nil {
+		switch model.WorkshopStatus(*req.Status) {
+		case model.WorkshopPublished, model.WorkshopClosed, model.WorkshopDeleted, model.WorkshopDraft, model.WorkshopPending, model.WorkshopRejected, model.WorkshopCancelled:
+		default:
+			return fmt.Errorf("invalid status")
+		}
+	}
+
 	if err := s.repo.Update(ctx, id, req); err != nil {
 		return err
 	}
@@ -136,4 +197,57 @@ func (s *WorkshopService) Delete(ctx context.Context, id string) error {
 		_ = s.redis.Del(ctx, fmt.Sprintf("workshop:meta:%s", id)).Err()
 	}
 	return nil
+}
+
+func ValidateWorkshop(req *model.CreateWorkshopRequest) error {
+	if strings.TrimSpace(req.Title) == "" || len(req.Title) > 200 || strings.TrimSpace(req.Room) == "" || strings.TrimSpace(req.Speaker) == "" {
+		return fmt.Errorf("vui lòng nhập tiêu đề, diễn giả và địa điểm")
+	}
+	if req.Capacity < 1 || req.Capacity > 100000 || req.Price != 0 {
+		return fmt.Errorf("sức chứa phải từ 1–100000; hiện chỉ hỗ trợ workshop miễn phí")
+	}
+	if req.Format == "" {
+		req.Format = "OFFLINE"
+	}
+	if req.Format != "OFFLINE" && req.Format != "ONLINE" && req.Format != "HYBRID" {
+		return fmt.Errorf("invalid format")
+	}
+	start, e1 := time.Parse(time.RFC3339, req.StartTime)
+	end, e2 := time.Parse(time.RFC3339, req.EndTime)
+	rs, e3 := time.Parse(time.RFC3339, req.RegistrationStartTime)
+	re, e4 := time.Parse(time.RFC3339, req.RegistrationEndTime)
+	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || !start.Before(end) || !rs.Before(re) || re.After(start) {
+		return fmt.Errorf("lịch workshop hoặc thời gian đăng ký không hợp lệ")
+	}
+	return nil
+}
+func WorkshopRequest(w *model.Workshop) model.CreateWorkshopRequest {
+	req := model.CreateWorkshopRequest{Title: w.Title, Room: w.Room, StartTime: w.StartTime.Format(time.RFC3339), EndTime: w.EndTime.Format(time.RFC3339), RegistrationStartTime: w.RegistrationStartTime.Format(time.RFC3339), RegistrationEndTime: w.RegistrationEndTime.Format(time.RFC3339), Capacity: w.Capacity, Price: w.Price, CoverURL: w.CoverURL, Audience: w.Audience, Benefits: w.Benefits, Preparation: w.Preparation, Agenda: w.Agenda, Format: w.Format}
+	if w.Description != nil {
+		req.Description = *w.Description
+	}
+	if w.Speaker != nil {
+		req.Speaker = *w.Speaker
+	}
+	if w.Summary != nil {
+		req.Summary = *w.Summary
+	}
+	if w.RoomLayoutURL != nil {
+		req.RoomLayoutURL = *w.RoomLayoutURL
+	}
+	return req
+}
+
+func (s *WorkshopService) ListFor(ctx context.Context, title string, admin bool) ([]model.Workshop, error) {
+	return s.repo.List(ctx, title, admin, "")
+}
+func (s *WorkshopService) CompanyApproved(ctx context.Context, id string) bool {
+	var ok bool
+	_ = s.repo.GetPool().QueryRow(ctx, "SELECT status='APPROVED' FROM companies WHERE id=$1", id).Scan(&ok)
+	return ok
+}
+func (s *WorkshopService) DeleteCache(ctx context.Context, id string) {
+	if s.redis != nil {
+		_ = s.redis.Del(ctx, "workshop:meta:"+id, "workshop:seats:"+id).Err()
+	}
 }
