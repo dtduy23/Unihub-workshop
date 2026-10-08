@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: unihub
+  namespace: argocd
+spec:
+  description: UniHub application namespaces; production sync is manual.
+  sourceRepos:
+  - https://github.com/dtduy23/Unihub-workshop.git
+  destinations:
+  - namespace: unihub-staging
+    server: https://kubernetes.default.svc
+  - namespace: unihub-prod
+    server: https://kubernetes.default.svc
+  - namespace: unihub-demo
+    server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  syncWindows:
+  - kind: allow
+    schedule: 0 9 * * 1-5
+    duration: 9h
+    applications:
+    - unihub-prod
+    timeZone: Asia/Ho_Chi_Minh
+    manualSync: true

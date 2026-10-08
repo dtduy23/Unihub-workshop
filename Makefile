@@ -42,7 +42,25 @@ bench-2k: ## Chạy Full Gate Burst Stress-test (2,000 users, 100 slots, 0ms bar
 
 # --- KUBERNETES & GITOPS ---
 k8s-deploy: ## Tự động hóa deploy lên cụm Minikube / Local K8s
-	@./scripts/k8s/deploy_minikube.sh
+	@bash scripts/devops/bootstrap-demo.sh minikube
 
 clean: ## Dọn dẹp các file binary đã build
 	rm -rf src/backend/bin/*
+
+# --- COMPLETE DEVOPS ARTIFACTS ---
+.PHONY: devops-check devops-demo devops-demo-kind devops-ci devops-loadtest
+
+devops-check: ## Kiểm tra Helm, GitOps, CI DAG, shell và Python
+	@bash scripts/devops/validate.sh
+
+devops-demo: ## Dựng stack DevOps + GitOps snapshot trên minikube riêng
+	@bash scripts/devops/bootstrap-demo.sh minikube
+
+devops-demo-kind: ## Dựng stack DevOps + GitOps snapshot trên kind riêng
+	@bash scripts/devops/bootstrap-demo.sh kind
+
+devops-ci: ## Submit Argo CI (yêu cầu IMAGE_REGISTRY và registry credentials)
+	@bash scripts/devops/submit-ci.sh
+
+devops-loadtest: ## Chạy k6 gate trên namespace demo (yêu cầu BACKEND_IMAGE)
+	@bash scripts/devops/run-loadtest.sh unihub-demo "$(BACKEND_IMAGE)"

@@ -69,3 +69,7 @@ app.kubernetes.io/name: {{ include "unihub.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: web
 {{- end }}
+
+{{- define "unihub.secretName" -}}
+{{- required "secrets.existingSecret must name the credential Secret" .Values.secrets.existingSecret -}}
+{{- end -}}

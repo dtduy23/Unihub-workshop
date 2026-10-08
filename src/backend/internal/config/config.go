@@ -8,7 +8,7 @@ import (
 )
 
 type Config struct {
-	// App Mode: "api" | "worker" | "all" (default cho local dev)
+	// App Mode: "api" | "worker" | "all" | "migrate" (default: all)
 	AppMode string
 
 	// Database
@@ -18,6 +18,8 @@ type Config struct {
 	DBPassword string
 	DBName     string
 	DBSSLMode  string
+	DBMaxConns int
+	DBMinConns int
 
 	// Redis
 	RedisAddr     string
@@ -70,6 +72,8 @@ func Load() *Config {
 		DBPassword: getEnv("DB_PASSWORD", "unihub_secret"),
 		DBName:     getEnv("DB_NAME", "unihub_workshop"),
 		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
+		DBMaxConns: getEnvInt("DB_MAX_CONNS", 50),
+		DBMinConns: getEnvInt("DB_MIN_CONNS", 10),
 
 		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword: getEnv("REDIS_PASSWORD", ""),

@@ -27,6 +27,13 @@ type Publisher struct {
 	done    chan struct{}
 }
 
+// IsConnected reports broker connectivity for readiness without exposing it.
+func (p *Publisher) IsConnected() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.closed && p.conn != nil && !p.conn.IsClosed() && p.channel != nil && !p.channel.IsClosed()
+}
+
 func NewPublisher(url string) (*Publisher, error) {
 	p := &Publisher{url: url, done: make(chan struct{})}
 	if err := p.connect(); err != nil {

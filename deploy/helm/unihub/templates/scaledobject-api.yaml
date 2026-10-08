@@ -1,8 +1,9 @@
-{{- if and .Values.api.enabled .Values.api.autoscaling.keda (and .Values.api.autoscaling.keda.enabled) -}}
+{{- if and .Values.api.enabled .Values.api.autoscaling.enabled .Values.api.autoscaling.keda.enabled -}}
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
   name: unihub-api-presence-scaler
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
   labels:
     {{- include "unihub.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
@@ -36,10 +37,18 @@ spec:
               value: 50
               periodSeconds: 60
   triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.api.autoscaling.targetCPUUtilizationPercentage | quote }}
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.api.autoscaling.targetMemoryUtilizationPercentage | quote }}
     - type: prometheus
       metadata:
         serverAddress: {{ .Values.api.autoscaling.keda.prometheusServer | default "http://prometheus-server.monitoring.svc:9090" }}
         metricName: {{ .Values.api.autoscaling.presence.metricName | default "unihub_active_online_users" }}
-        query: sum({{ .Values.api.autoscaling.presence.metricName | default "unihub_active_online_users" }})
+        query: max({{ .Values.api.autoscaling.presence.metricName }}{namespace="{{ .Release.Namespace }}",app="unihub-api"}) or vector(0)
         threshold: "{{ .Values.api.autoscaling.presence.targetActiveUsersPerPod | default 150 }}"
 {{- end }}

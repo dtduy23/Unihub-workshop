@@ -1,0 +1,82 @@
+# Local demo only: security disabled; mmap disabled for small clusters.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opensearch
+  annotations:
+    argocd.argoproj.io/sync-wave: '1'
+spec:
+  serviceName: opensearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opensearch
+  template:
+    metadata:
+      labels:
+        app: opensearch
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+      containers:
+      - name: opensearch
+        image: opensearchproject/opensearch:2.19.1
+        env:
+        - name: discovery.type
+          value: single-node
+        - name: DISABLE_INSTALL_DEMO_CONFIG
+          value: 'true'
+        - name: DISABLE_SECURITY_PLUGIN
+          value: 'true'
+        - name: OPENSEARCH_JAVA_OPTS
+          value: -Xms512m -Xmx512m
+        - name: node.store.allow_mmap
+          value: 'false'
+        ports:
+        - name: http
+          containerPort: 9200
+        resources:
+          requests:
+            cpu: 250m
+            memory: 1Gi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        startupProbe:
+          httpGet:
+            path: /_cluster/health
+            port: http
+          periodSeconds: 10
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health
+            port: http
+          periodSeconds: 10
+        volumeMounts:
+        - name: data
+          mountPath: /usr/share/opensearch/data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch
+  annotations:
+    argocd.argoproj.io/sync-wave: '1'
+spec:
+  selector:
+    app: opensearch
+  ports:
+  - name: http
+    port: 9200
+    targetPort: http

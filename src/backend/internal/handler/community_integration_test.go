@@ -36,6 +36,31 @@ import (
 
 const testSecret = "integration-only-unihub-secret"
 
+func TestConcurrentFreshMigrations(t *testing.T) {
+	f := setup(t)
+	if _, err := f.pool.Exec(context.Background(), "DROP SCHEMA public CASCADE; CREATE SCHEMA public"); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	errors := make(chan error, 6)
+	for i := 0; i < 6; i++ {
+		go func() {
+			<-start
+			errors <- database.RunMigrations(f.pool)
+		}()
+	}
+	close(start)
+	for i := 0; i < 6; i++ {
+		if err := <-errors; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var count int
+	if err := f.pool.QueryRow(context.Background(), "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 4 {
+		t.Fatalf("expected exactly four non-seed migrations, count=%d error=%v", count, err)
+	}
+}
+
 type fixture struct {
 	pool                  *pgxpool.Pool
 	router                http.Handler

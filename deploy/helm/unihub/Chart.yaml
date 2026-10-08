@@ -2,7 +2,7 @@ apiVersion: v2
 name: unihub
 description: Enterprise-grade Helm Chart for UniHub Multi-tier Microservices Platform
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "1.0.0"
 keywords:
   - unihub

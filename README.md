@@ -161,9 +161,11 @@ Git Commit ──> Argo Workflows DAG (Lint, Race Tests, Docker Multi-stage Buil
 
 * **Infrastructure as Code (IaC):** Complete GCP foundation managed via **Terraform** (`deploy/terraform/`), provisioning VPC, GKE Autopilot clusters, Cloud SQL, Memorystore, Cloud NAT, and Cloud Armor WAF.
 * **Declarative Packaging:** Packaged with **Helm 3** (`deploy/helm/unihub`) with environment-isolated configurations (`values-staging.yaml`, `values-prod.yaml`).
-* **Continuous Delivery:** Orchestrated with **ArgoCD GitOps** (`deploy/gitops/`) utilizing Kubernetes **Sync Waves** to guarantee clean dependency ordering between databases, migrations, and microservices.
-* **Automated CI & Quality Gates:** Cloud-native DAG workflows using **Argo Workflows** (`deploy/ci/argo-workflows/`) and **GitHub Actions**, enforcing automated regression gates where pipelines terminate if p95 latency exceeds 200ms.
+* **Continuous Delivery:** Orchestrated with **ArgoCD GitOps** (`deploy/argocd/`) utilizing Kubernetes **Sync Waves** to guarantee clean dependency ordering between databases, migrations, and microservices.
+* **Automated CI & Quality Gates:** Cloud-native DAG workflows using **Argo Workflows** (`deploy/argo-workflows/`) and **GitHub Actions**, enforcing automated regression gates where pipelines terminate if p95 latency exceeds 200ms.
 * **Telemetry & Observability:** Prometheus Operator CRDs (`PodMonitor`), Grafana dashboards, and structured JSON logs indexed via **Fluent-bit** into **OpenSearch**.
+
+Run `make devops-check` to validate the artifacts. `make devops-demo` creates an isolated minikube stack with local GitOps, observability and a k6 gate; `make devops-demo-kind` uses kind. CI images use immutable commit tags, staging promotion follows all gates, and production sync remains manual. See [the DevOps playbook](docs/DEVOPS_PLAYBOOK.md) and [recorded validation](docs/DEVOPS_VALIDATION.md) for prerequisites and tested limits.
 
 ---
 

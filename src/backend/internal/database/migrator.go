@@ -22,9 +22,20 @@ var migrationFiles embed.FS
 // Migration 002_seed_data.sql only runs when RUN_SEED=true.
 func RunMigrations(pool *pgxpool.Pool) error {
 	ctx := context.Background()
+	// Keep the advisory lock and all SQL on the same session. Replicas and
+	// migration Jobs can start together without racing schema/tracking changes.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(814946249)"); err != nil {
+		return fmt.Errorf("lock migrations: %w", err)
+	}
+	defer conn.Exec(context.Background(), "SELECT pg_advisory_unlock(814946249)")
 
 	// Tạo bảng tracking migration nếu chưa tồn tại
-	_, err := pool.Exec(ctx, `
+	_, err = conn.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version VARCHAR(255) PRIMARY KEY,
 			applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -63,7 +74,7 @@ func RunMigrations(pool *pgxpool.Pool) error {
 
 		// Kiểm tra migration đã chạy chưa
 		var exists bool
-		err := pool.QueryRow(ctx,
+		err := conn.QueryRow(ctx,
 			"SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)",
 			version,
 		).Scan(&exists)
@@ -82,7 +93,7 @@ func RunMigrations(pool *pgxpool.Pool) error {
 		}
 
 		// Chạy trong transaction
-		tx, err := pool.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction for %s: %w", version, err)
 		}

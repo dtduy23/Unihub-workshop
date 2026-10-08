@@ -1,0 +1,34 @@
+{{- if .Values.mailpit.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: mailpit, app.kubernetes.io/instance: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels: {app: mailpit, app.kubernetes.io/instance: {{ .Release.Name }}}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: mailpit
+          image: {{ .Values.mailpit.image | quote }}
+          ports: [{name: smtp, containerPort: 1025}, {name: http, containerPort: 8025}]
+          readinessProbe:
+            httpGet: {path: /, port: http}
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailhog
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  selector: {app: mailpit, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports: [{name: smtp, port: 1025, targetPort: smtp}, {name: http, port: 8025, targetPort: http}]
+{{- end }}

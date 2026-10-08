@@ -1,0 +1,11 @@
+{{- if gt (int .Values.api.autoscaling.minReplicas) (int .Values.api.autoscaling.maxReplicas) }}
+{{- fail "api autoscaling minReplicas exceeds maxReplicas" }}
+{{- end }}
+{{- if gt (int .Values.worker.autoscaling.minReplicas) (int .Values.worker.autoscaling.maxReplicas) }}
+{{- fail "worker autoscaling minReplicas exceeds maxReplicas" }}
+{{- end }}
+{{- if and .Values.api.enabled .Values.media.enabled (not (has "ReadWriteMany" .Values.media.accessModes)) }}
+{{- if or (gt (int .Values.api.replicaCount) 1) (and .Values.api.autoscaling.enabled (gt (int .Values.api.autoscaling.maxReplicas) 1)) }}
+{{- fail "Multiple API replicas require media.accessModes=[ReadWriteMany] and a matching storage provider" }}
+{{- end }}
+{{- end }}

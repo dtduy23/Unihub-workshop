@@ -1,40 +1,12 @@
-==============================================================================
-🚀 UniHub Platform Helm Chart has been successfully deployed!
-==============================================================================
+UniHub {{ .Chart.Version }} / {{ .Values.global.environment }}
+Release: {{ .Release.Name }}; namespace: {{ .Release.Namespace }}
 
-Release Name: {{ .Release.Name }}
-Namespace:    {{ .Release.Namespace }}
-Environment:  {{ .Values.global.environment }}
+Inspect rollout and migration status:
+  kubectl get pods,jobs -n {{ .Release.Namespace }}
 
-1. Check Pod status:
-   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/part-of=unihub
+Open web and API in separate terminals:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/unihub-web-service 3000:80
+  kubectl port-forward -n {{ .Release.Namespace }} svc/unihub-api-service 8080:80
 
-2. Access the Application:
-{{- if .Values.ingress.enabled }}
-   Ingress is ENABLED. You can access the services via:
-   {{- range .Values.ingress.hosts }}
-   {{- if .host }}
-   - Host: http://{{ .host }}
-   {{- else }}
-   - Host: (IP-based default host)
-   {{- end }}
-   {{- end }}
-{{- else if eq .Values.api.service.type "NodePort" }}
-   Backend API is exposed via NodePort:
-   export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services unihub-api-service)
-   export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
-   echo "API URL: http://$NODE_IP:$NODE_PORT"
-   echo "Health Check: http://$NODE_IP:$NODE_PORT/health"
-{{- else }}
-   Port-forward to Backend API:
-   kubectl port-forward -n {{ .Release.Namespace }} svc/unihub-api-service 8080:80
-   Health Check: http://localhost:8080/health
-
-   Port-forward to Frontend Web:
-   kubectl port-forward -n {{ .Release.Namespace }} svc/unihub-web-service 3000:80
-   Web UI: http://localhost:3000
-{{- end }}
-
-3. Metrics & Monitoring:
-   Prometheus scraping endpoint is configured at: /metrics on unihub-api-service.
-==============================================================================
+Probes: /health and /ready. Prometheus: /metrics (API and worker pods).
+Setup, GitOps, k6 and storage requirements: docs/DEVOPS_PLAYBOOK.md

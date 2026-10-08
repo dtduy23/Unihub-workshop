@@ -3,7 +3,7 @@
 # ==========================================
 
 # Stage 1: Build binary
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25.5-alpine AS builder
 
 RUN apk update && apk add --no-cache git ca-certificates && update-ca-certificates
 
@@ -17,20 +17,22 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-w -s" \
-    -o /app/server ./cmd/server/main.go
+    -o /app/server ./cmd/server
+
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/loadtest-seed ./cmd/loadtest-seed
 
 # Stage 2: Minimal runtime
-FROM alpine:3.19
+FROM alpine:3.22
 
 RUN apk --no-cache add ca-certificates tzdata
 
 # Security: Non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN addgroup -g 10001 -S appgroup && adduser -u 10001 -S appuser -G appgroup
 
 WORKDIR /app
 
 # Copy only the binary (migrations are embedded via go:embed)
-COPY --from=builder /app/server .
+COPY --from=builder /app/server /app/loadtest-seed ./
 
 # Set ownership to non-root user
 RUN mkdir -p /app/data/media && chown -R appuser:appgroup /app

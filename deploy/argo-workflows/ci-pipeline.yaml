@@ -1,0 +1,658 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: unihub-ci
+  namespace: unihub-ci
+spec:
+  serviceAccountName: unihub-ci
+  entrypoint: pipeline
+  onExit: cleanup
+  activeDeadlineSeconds: 3600
+  arguments:
+    parameters:
+    - name: repository
+      value: https://github.com/dtduy23/Unihub-workshop.git
+    - name: revision
+      value: ''
+    - name: image-registry
+      value: registry.example.com/unihub
+    - name: promote
+      value: 'false'
+  imagePullSecrets:
+  - name: registry-credentials
+  synchronization:
+    mutex:
+      name: unihub-ci-environment
+  podGC:
+    strategy: OnWorkflowCompletion
+  ttlStrategy:
+    secondsAfterCompletion: 86400
+  templates:
+  - name: pipeline
+    dag:
+      tasks:
+      - name: go-tests
+        template: go-tests
+      - name: python-tests
+        template: python-tests
+      - name: web-tests
+        template: web-tests
+      - name: manifests
+        template: manifests
+      - name: build-backend
+        template: build-image
+        depends: go-tests.Succeeded && python-tests.Succeeded && web-tests.Succeeded
+          && manifests.Succeeded
+        arguments:
+          parameters:
+          - name: component
+            value: backend
+      - name: build-web
+        template: build-image
+        depends: go-tests.Succeeded && python-tests.Succeeded && web-tests.Succeeded
+          && manifests.Succeeded
+        arguments:
+          parameters:
+          - name: component
+            value: web
+      - name: deploy-candidate
+        template: deploy-candidate
+        depends: build-backend.Succeeded && build-web.Succeeded
+      - name: performance
+        template: performance
+        depends: deploy-candidate.Succeeded
+      - name: promote
+        template: promote
+        depends: performance.Succeeded
+        when: '{{workflow.parameters.promote}} == true'
+  - name: go-tests
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    container:
+      image: golang:1.25.5
+      command:
+      - bash
+      - -ec
+      args:
+      - "export GOCACHE=/tmp/go-cache\ncd src/backend\nfor attempt in $(seq 1 60);\
+        \ do\n  if (echo > /dev/tcp/127.0.0.1/5432) 2>/dev/null; then break; fi\n\
+        \  sleep 1\ndone\ngo run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0\
+        \ run\ngo test -v -race -count=1 ./...\n"
+      workingDir: /workspace/repo
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+      env:
+      - name: TEST_DATABASE_URL
+        value: postgres://unihub:integration-only@127.0.0.1:5432/unihub_test?sslmode=disable
+    initContainers:
+    - name: checkout
+      image: alpine/git:v2.47.2
+      command:
+      - sh
+      - -ec
+      args:
+      - 'echo "$GIT_SHA" | grep -Eq ''^[0-9a-f]{40}$'' || { echo ''Supply a full immutable
+        revision''; exit 1; }
+
+        git init /workspace/repo
+
+        git -C /workspace/repo remote add origin "$GIT_REPOSITORY"
+
+        git -C /workspace/repo fetch --depth=1 origin "$GIT_SHA"
+
+        git -C /workspace/repo checkout --detach FETCH_HEAD
+
+        [ "$(git -C /workspace/repo rev-parse HEAD)" = "$GIT_SHA" ]
+
+        chown -R 1000:1000 /workspace
+
+        '
+      env:
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      - name: GIT_REPOSITORY
+        value: '{{workflow.parameters.repository}}'
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+    sidecars:
+    - name: postgres
+      image: postgres:16-alpine
+      env:
+      - name: POSTGRES_USER
+        value: unihub
+      - name: POSTGRES_PASSWORD
+        value: integration-only
+      - name: POSTGRES_DB
+        value: unihub_test
+      readinessProbe:
+        exec:
+          command:
+          - pg_isready
+          - -U
+          - unihub
+          - -d
+          - unihub_test
+        periodSeconds: 2
+  - name: python-tests
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    container:
+      image: python:3.13-alpine
+      command:
+      - sh
+      - -ec
+      args:
+      - python3 -m unittest discover -s scripts/tests -v
+      workingDir: /workspace/repo
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+    initContainers:
+    - name: checkout
+      image: alpine/git:v2.47.2
+      command:
+      - sh
+      - -ec
+      args:
+      - 'echo "$GIT_SHA" | grep -Eq ''^[0-9a-f]{40}$'' || { echo ''Supply a full immutable
+        revision''; exit 1; }
+
+        git init /workspace/repo
+
+        git -C /workspace/repo remote add origin "$GIT_REPOSITORY"
+
+        git -C /workspace/repo fetch --depth=1 origin "$GIT_SHA"
+
+        git -C /workspace/repo checkout --detach FETCH_HEAD
+
+        [ "$(git -C /workspace/repo rev-parse HEAD)" = "$GIT_SHA" ]
+
+        chown -R 1000:1000 /workspace
+
+        '
+      env:
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      - name: GIT_REPOSITORY
+        value: '{{workflow.parameters.repository}}'
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+  - name: web-tests
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    container:
+      image: node:22-alpine
+      command:
+      - sh
+      - -ec
+      args:
+      - cd src/web; npm ci; npm run typecheck; npm run lint; npm run build
+      workingDir: /workspace/repo
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+      env:
+      - name: NEXT_TELEMETRY_DISABLED
+        value: '1'
+    initContainers:
+    - name: checkout
+      image: alpine/git:v2.47.2
+      command:
+      - sh
+      - -ec
+      args:
+      - 'echo "$GIT_SHA" | grep -Eq ''^[0-9a-f]{40}$'' || { echo ''Supply a full immutable
+        revision''; exit 1; }
+
+        git init /workspace/repo
+
+        git -C /workspace/repo remote add origin "$GIT_REPOSITORY"
+
+        git -C /workspace/repo fetch --depth=1 origin "$GIT_SHA"
+
+        git -C /workspace/repo checkout --detach FETCH_HEAD
+
+        [ "$(git -C /workspace/repo rev-parse HEAD)" = "$GIT_SHA" ]
+
+        chown -R 1000:1000 /workspace
+
+        '
+      env:
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      - name: GIT_REPOSITORY
+        value: '{{workflow.parameters.repository}}'
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+  - name: manifests
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    container:
+      image: dtzar/helm-kubectl:3.17.2
+      command:
+      - sh
+      - -ec
+      args:
+      - apk add --no-cache python3 py3-yaml bash openssl; bash scripts/devops/validate.sh
+      workingDir: /workspace/repo
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+    initContainers:
+    - name: checkout
+      image: alpine/git:v2.47.2
+      command:
+      - sh
+      - -ec
+      args:
+      - 'echo "$GIT_SHA" | grep -Eq ''^[0-9a-f]{40}$'' || { echo ''Supply a full immutable
+        revision''; exit 1; }
+
+        git init /workspace/repo
+
+        git -C /workspace/repo remote add origin "$GIT_REPOSITORY"
+
+        git -C /workspace/repo fetch --depth=1 origin "$GIT_SHA"
+
+        git -C /workspace/repo checkout --detach FETCH_HEAD
+
+        [ "$(git -C /workspace/repo rev-parse HEAD)" = "$GIT_SHA" ]
+
+        chown -R 1000:1000 /workspace
+
+        '
+      env:
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      - name: GIT_REPOSITORY
+        value: '{{workflow.parameters.repository}}'
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+  - name: build-image
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    - name: registry
+      secret:
+        secretName: registry-credentials
+        items:
+        - key: .dockerconfigjson
+          path: config.json
+    - name: buildkit-state
+      emptyDir: {}
+    container:
+      image: moby/buildkit:v0.20.2-rootless
+      command:
+      - sh
+      - -ec
+      args:
+      - "export BUILDKITD_FLAGS=\"--oci-worker-no-process-sandbox\"\nexport DOCKER_CONFIG=/home/user/.docker\n\
+        buildctl-daemonless.sh build --frontend dockerfile.v0 \\\n  --local context=/workspace/repo/src/\"\
+        $COMPONENT\" \\\n  --local dockerfile=/workspace/repo/src/\"$COMPONENT\" \\\
+        \n  --output type=image,name=\"$IMAGE_REGISTRY/unihub-$COMPONENT:$GIT_SHA\"\
+        ,push=true\n"
+      workingDir: /workspace/repo
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+      - name: registry
+        mountPath: /home/user/.docker
+        readOnly: true
+      - name: buildkit-state
+        mountPath: /home/user/.local/share/buildkit
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+      env:
+      - name: COMPONENT
+        value: '{{inputs.parameters.component}}'
+      - name: IMAGE_REGISTRY
+        value: '{{workflow.parameters.image-registry}}'
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: Unconfined
+    initContainers:
+    - name: checkout
+      image: alpine/git:v2.47.2
+      command:
+      - sh
+      - -ec
+      args:
+      - 'echo "$GIT_SHA" | grep -Eq ''^[0-9a-f]{40}$'' || { echo ''Supply a full immutable
+        revision''; exit 1; }
+
+        git init /workspace/repo
+
+        git -C /workspace/repo remote add origin "$GIT_REPOSITORY"
+
+        git -C /workspace/repo fetch --depth=1 origin "$GIT_SHA"
+
+        git -C /workspace/repo checkout --detach FETCH_HEAD
+
+        [ "$(git -C /workspace/repo rev-parse HEAD)" = "$GIT_SHA" ]
+
+        chown -R 1000:1000 /workspace
+
+        '
+      env:
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      - name: GIT_REPOSITORY
+        value: '{{workflow.parameters.repository}}'
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+    inputs:
+      parameters:
+      - name: component
+    metadata:
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/main: unconfined
+  - name: deploy-candidate
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    container:
+      image: dtzar/helm-kubectl:3.17.2
+      command:
+      - sh
+      - -ec
+      args:
+      - apk add --no-cache openssl; bash scripts/devops/deploy-candidate.sh
+      workingDir: /workspace/repo
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+      env:
+      - name: CI_NAMESPACE
+        value: '{{workflow.namespace}}'
+      - name: IMAGE_REGISTRY
+        value: '{{workflow.parameters.image-registry}}'
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+    initContainers:
+    - name: checkout
+      image: alpine/git:v2.47.2
+      command:
+      - sh
+      - -ec
+      args:
+      - 'echo "$GIT_SHA" | grep -Eq ''^[0-9a-f]{40}$'' || { echo ''Supply a full immutable
+        revision''; exit 1; }
+
+        git init /workspace/repo
+
+        git -C /workspace/repo remote add origin "$GIT_REPOSITORY"
+
+        git -C /workspace/repo fetch --depth=1 origin "$GIT_SHA"
+
+        git -C /workspace/repo checkout --detach FETCH_HEAD
+
+        [ "$(git -C /workspace/repo rev-parse HEAD)" = "$GIT_SHA" ]
+
+        chown -R 1000:1000 /workspace
+
+        '
+      env:
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      - name: GIT_REPOSITORY
+        value: '{{workflow.parameters.repository}}'
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+  - name: performance
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    - name: fixtures
+      emptyDir: {}
+    container:
+      image: grafana/k6:0.57.0
+      command:
+      - sh
+      - -ec
+      args:
+      - k6 run /workspace/repo/src/backend/tests/k6_load_test.js
+      workingDir: /workspace/repo
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+      - name: fixtures
+        mountPath: /fixtures
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+      securityContext:
+        runAsUser: 0
+      env:
+      - name: BASE_URL
+        value: http://unihub-api-service
+      - name: SESSIONS_FILE
+        value: /fixtures/sessions.json
+      - name: SUMMARY_FILE
+        value: /tmp/loadtest-summary.json
+    initContainers:
+    - name: checkout
+      image: alpine/git:v2.47.2
+      command:
+      - sh
+      - -ec
+      args:
+      - 'echo "$GIT_SHA" | grep -Eq ''^[0-9a-f]{40}$'' || { echo ''Supply a full immutable
+        revision''; exit 1; }
+
+        git init /workspace/repo
+
+        git -C /workspace/repo remote add origin "$GIT_REPOSITORY"
+
+        git -C /workspace/repo fetch --depth=1 origin "$GIT_SHA"
+
+        git -C /workspace/repo checkout --detach FETCH_HEAD
+
+        [ "$(git -C /workspace/repo rev-parse HEAD)" = "$GIT_SHA" ]
+
+        chown -R 1000:1000 /workspace
+
+        '
+      env:
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      - name: GIT_REPOSITORY
+        value: '{{workflow.parameters.repository}}'
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+    - name: fixture
+      image: '{{workflow.parameters.image-registry}}/unihub-backend:{{workflow.parameters.revision}}'
+      command:
+      - /app/loadtest-seed
+      envFrom:
+      - configMapRef:
+          name: unihub-config
+      - secretRef:
+          name: unihub-ci-secret
+      env:
+      - name: FIXTURE_FILE
+        value: /fixtures/sessions.json
+      - name: FIXTURE_USERS
+        value: '50'
+      volumeMounts:
+      - name: fixtures
+        mountPath: /fixtures
+    outputs:
+      parameters:
+      - name: summary
+        valueFrom:
+          path: /tmp/loadtest-summary.json
+  - name: promote
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    container:
+      image: python:3.13-alpine
+      command:
+      - sh
+      - -ec
+      args:
+      - 'apk add --no-cache git
+
+        python3 scripts/devops/promote_images.py --registry "$IMAGE_REGISTRY" --revision
+        "$GIT_SHA" --repository "$GIT_REPOSITORY" --push
+
+        '
+      workingDir: /workspace/repo
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+      env:
+      - name: IMAGE_REGISTRY
+        value: '{{workflow.parameters.image-registry}}'
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      - name: GIT_REPOSITORY
+        value: '{{workflow.parameters.repository}}'
+      - name: GIT_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: git-credentials
+            key: token
+    initContainers:
+    - name: checkout
+      image: alpine/git:v2.47.2
+      command:
+      - sh
+      - -ec
+      args:
+      - 'echo "$GIT_SHA" | grep -Eq ''^[0-9a-f]{40}$'' || { echo ''Supply a full immutable
+        revision''; exit 1; }
+
+        git init /workspace/repo
+
+        git -C /workspace/repo remote add origin "$GIT_REPOSITORY"
+
+        git -C /workspace/repo fetch --depth=1 origin "$GIT_SHA"
+
+        git -C /workspace/repo checkout --detach FETCH_HEAD
+
+        [ "$(git -C /workspace/repo rev-parse HEAD)" = "$GIT_SHA" ]
+
+        chown -R 1000:1000 /workspace
+
+        '
+      env:
+      - name: GIT_SHA
+        value: '{{workflow.parameters.revision}}'
+      - name: GIT_REPOSITORY
+        value: '{{workflow.parameters.repository}}'
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+  - name: cleanup
+    volumes:
+    - name: workspace
+      emptyDir: {}
+    container:
+      image: dtzar/helm-kubectl:3.17.2
+      command:
+      - bash
+      - -ec
+      args:
+      - 'set -euo pipefail
+
+        : "${CI_NAMESPACE:?}"
+
+        [[ "$CI_NAMESPACE" == unihub-ci ]] || { echo "Refusing cleanup outside unihub-ci"
+        >&2; exit 1; }
+
+        helm uninstall unihub-ci -n "$CI_NAMESPACE" --ignore-not-found --wait --timeout
+        3m
+
+        kubectl -n "$CI_NAMESPACE" delete job unihub-migrate --ignore-not-found --wait=true
+
+        # StatefulSet volume claims outlive Helm uninstalls, so remove only CI-labeled
+        claims.
+
+        kubectl -n "$CI_NAMESPACE" delete pvc -l app.kubernetes.io/instance=unihub-ci
+        --wait=true --timeout=120s
+
+        kubectl -n "$CI_NAMESPACE" delete secret unihub-ci-secret --ignore-not-found
+
+        '
+      workingDir: /
+      volumeMounts:
+      - name: workspace
+        mountPath: /workspace
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+      env:
+      - name: CI_NAMESPACE
+        value: '{{workflow.namespace}}'

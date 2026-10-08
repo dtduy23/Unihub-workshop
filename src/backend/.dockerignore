@@ -1,9 +1,11 @@
 .git
 .env
-.env.local
+.env.*
+node_modules
+.next
+bin
+server
+data
+coverage
 *.log
-tests/
-deploy/
-docker-compose.yml
-README.md
-.vscode/
+*.tsbuildinfo

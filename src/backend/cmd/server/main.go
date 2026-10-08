@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -47,6 +49,9 @@ func main() {
 
 	// Load config
 	cfg := config.Load()
+	if cfg.AppMode != "api" && cfg.AppMode != "worker" && cfg.AppMode != "all" && cfg.AppMode != "migrate" {
+		log.Fatalf("Unsupported APP_MODE: %s", cfg.AppMode)
+	}
 
 	// Context for background workers and graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -57,8 +62,13 @@ func main() {
 	defer pgPool.Close()
 
 	// Auto-run database migrations
-	if err := database.RunMigrations(pgPool); err != nil {
-		log.Fatalf("[MIGRATION] Failed: %v", err)
+	if cfg.AppMode == "migrate" || os.Getenv("AUTO_MIGRATE") != "false" {
+		if err := database.RunMigrations(pgPool); err != nil {
+			log.Fatalf("[MIGRATION] Failed: %v", err)
+		}
+	}
+	if cfg.AppMode == "migrate" {
+		return
 	}
 
 	// Start DB pool metrics collector (every 15s)
@@ -144,8 +154,10 @@ func main() {
 
 	// Build router
 	r := chi.NewRouter()
+	var registrationReady, notificationReady atomic.Bool
 
 	// Global middleware
+	r.Use(chimw.RequestID)
 	r.Use(middleware.StructuredLogger)
 	r.Use(middleware.MetricsMiddleware)
 	r.Use(presenceMW.Handler)
@@ -160,7 +172,23 @@ func main() {
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if (cfg.AppMode == "worker" || cfg.AppMode == "all") && (!registrationReady.Load() || !notificationReady.Load()) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "time": time.Now().Format(time.RFC3339)})
+	})
+	r.Get("/ready", func(w http.ResponseWriter, r *http.Request) {
+		checkCtx, checkCancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer checkCancel()
+		ready := ctx.Err() == nil && pgPool.Ping(checkCtx) == nil && redisClient.Ping(checkCtx).Err() == nil && publisher.IsConnected()
+		if cfg.AppMode == "worker" || cfg.AppMode == "all" {
+			ready = ready && registrationReady.Load() && notificationReady.Load()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if !ready {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		json.NewEncoder(w).Encode(map[string]bool{"ready": ready})
 	})
 
 	// Only authentication/recovery endpoints are available without a session.
@@ -232,8 +260,8 @@ func main() {
 
 	// Start background workers (chỉ khi mode = "worker" hoặc "all")
 	if mode == "worker" || mode == "all" {
-		go startRegistrationWorker(ctx, consumer, regService)
-		go startNotificationWorker(ctx, cfg.RabbitMQURL, notifService)
+		go startRegistrationWorker(ctx, consumer, regService, &registrationReady)
+		go startNotificationWorker(ctx, cfg.RabbitMQURL, notifService, &notificationReady)
 		go startBatchImportScheduler(ctx, batchService)
 		go func() {
 			ticker := time.NewTicker(3 * time.Second)
@@ -250,11 +278,19 @@ func main() {
 		log.Println("[SERVER] Background workers started")
 	}
 
-	// Start HTTP server (chỉ khi mode = "api" hoặc "all")
-	if mode == "api" || mode == "all" {
+	// Worker pods expose only health/readiness and Prometheus metrics.
+	var httpHandler http.Handler = r
+	if mode == "worker" {
+		healthRouter := chi.NewRouter()
+		healthRouter.Handle("/health", r)
+		healthRouter.Handle("/ready", r)
+		healthRouter.Handle("/metrics", promhttp.Handler())
+		httpHandler = healthRouter
+	}
+	{
 		srv := &http.Server{
 			Addr:         ":" + cfg.ServerPort,
-			Handler:      r,
+			Handler:      httpHandler,
 			ReadTimeout:  15 * time.Second,
 			WriteTimeout: 15 * time.Second,
 			IdleTimeout:  60 * time.Second,
@@ -283,26 +319,19 @@ func main() {
 			log.Fatalf("[SERVER] Failed to start: %v", err)
 		}
 		log.Println("[SERVER] Stopped")
-	} else {
-		// Worker-only mode: block cho đến khi nhận tín hiệu tắt
-		log.Println("[SERVER] Worker-only mode — waiting for shutdown signal...")
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
-		log.Println("[SERVER] Worker shutting down...")
-		cancel()
 	}
 }
 
 // Background workers
 
-func startRegistrationWorker(ctx context.Context, consumer *queue.Consumer, regService *service.RegistrationService) {
+func startRegistrationWorker(ctx context.Context, consumer *queue.Consumer, regService *service.RegistrationService, ready *atomic.Bool) {
 	msgs, err := consumer.Consume(queue.RegistrationQueue)
 	if err != nil {
 		log.Fatalf("[WORKER] Failed to start registration consumer: %v", err)
 	}
 
 	workerPoolSize := runtime.NumCPU() * 2
+	ready.Store(true)
 	if workerPoolSize < 10 {
 		workerPoolSize = 10
 	}
@@ -315,6 +344,7 @@ func startRegistrationWorker(ctx context.Context, consumer *queue.Consumer, regS
 					return
 				case msg, ok := <-msgs:
 					if !ok {
+						ready.Store(false)
 						return
 					}
 
@@ -326,6 +356,7 @@ func startRegistrationWorker(ctx context.Context, consumer *queue.Consumer, regS
 					}
 
 					if err := regService.ProcessRegistration(ctx, queueMsg); err != nil {
+						metrics.MessagesConsumed.WithLabelValues(queue.RegistrationQueue, "error").Inc()
 						log.Printf("[WORKER] Processing failed: %v", err)
 						if regService.FailAfterRetries(ctx, queueMsg) {
 							msg.Nack(false, false)
@@ -336,13 +367,16 @@ func startRegistrationWorker(ctx context.Context, consumer *queue.Consumer, regS
 					}
 
 					msg.Ack(false)
+					metrics.MessagesConsumed.WithLabelValues(queue.RegistrationQueue, "success").Inc()
+					slog.Info("registration message processed", "correlation_id", queueMsg.CorrelationID, "user_id", queueMsg.UserID)
 				}
 			}
 		}()
 	}
 }
 
-func startNotificationWorker(ctx context.Context, rabbitURL string, notifService *service.NotificationService) {
+func startNotificationWorker(ctx context.Context, rabbitURL string, notifService *service.NotificationService, ready *atomic.Bool) {
+	defer ready.Store(false)
 	notifConsumer, err := queue.NewConsumer(rabbitURL)
 	if err != nil {
 		log.Printf("[WORKER] Failed to start notification consumer: %v", err)
@@ -357,6 +391,7 @@ func startNotificationWorker(ctx context.Context, rabbitURL string, notifService
 	}
 
 	log.Println("[WORKER] Notification worker started")
+	ready.Store(true)
 	for {
 		select {
 		case <-ctx.Done():
@@ -374,12 +409,14 @@ func startNotificationWorker(ctx context.Context, rabbitURL string, notifService
 			}
 
 			if err := notifService.Dispatch(ctx, event); err != nil {
+				metrics.MessagesConsumed.WithLabelValues(queue.NotificationQueue, "error").Inc()
 				log.Printf("[WORKER] Notification delivery failed: %v", err)
 				msg.Nack(false, true)
 				time.Sleep(time.Second)
 				continue
 			}
 			msg.Ack(false)
+			metrics.MessagesConsumed.WithLabelValues(queue.NotificationQueue, "success").Inc()
 		}
 	}
 }

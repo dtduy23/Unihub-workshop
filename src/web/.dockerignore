@@ -1,6 +1,11 @@
+.git
+.env
+.env.*
 node_modules
 .next
-.env.local
-.env
+bin
+server
+data
+coverage
 *.log
-.git
+*.tsbuildinfo

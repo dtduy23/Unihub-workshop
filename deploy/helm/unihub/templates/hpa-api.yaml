@@ -1,8 +1,9 @@
-{{- if and .Values.api.enabled .Values.api.autoscaling.enabled -}}
+{{- if and .Values.api.enabled .Values.api.autoscaling.enabled (not .Values.api.autoscaling.keda.enabled) -}}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: unihub-api-hpa
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
   labels:
     {{- include "unihub.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
@@ -20,6 +21,12 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.api.autoscaling.targetMemoryUtilizationPercentage }}
     {{- if and .Values.api.autoscaling.presence .Values.api.autoscaling.presence.enabled }}
     - type: External
       external:

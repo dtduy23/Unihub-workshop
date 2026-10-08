@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"unihub-workshop/internal/middleware"
 	"unihub-workshop/internal/model"
 	"unihub-workshop/internal/service"
 	"unihub-workshop/internal/waitingroom"
@@ -56,6 +57,7 @@ func (h *RegistrationHandler) Register(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, http.StatusConflict, err.Error())
 		return
 	}
+	middleware.SetLogCorrelationID(r, correlationID)
 
 	// After successful enqueue, we could theoretically release the waiting room token,
 	// but it's often better to let it expire naturally or release it after successful processing.

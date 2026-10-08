@@ -1,46 +1,63 @@
-{{- if .Values.redis.enabled -}}
+{{- if .Values.redis.enabled }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: redis
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
   labels:
-    app: redis
     {{- include "unihub.labels" . | nindent 4 }}
 spec:
+  serviceName: redis
   replicas: 1
   selector:
-    matchLabels:
-      app: redis
+    matchLabels: {app: redis, app.kubernetes.io/instance: {{ .Release.Name }}}
   template:
     metadata:
-      labels:
-        app: redis
+      labels: {app: redis, app.kubernetes.io/instance: {{ .Release.Name }}}
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: redis
           image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
           imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
-          ports:
-            - containerPort: {{ .Values.redis.port }}
-          resources:
-            {{- toYaml .Values.redis.resources | nindent 12 }}
+          ports: [{name: tcp, containerPort: 6379}]
+          command: [sh, -ec]
+          args: ['exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"']
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ include "unihub.secretName" . }}, key: REDIS_PASSWORD}
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef: {name: {{ include "unihub.secretName" . }}, key: REDIS_PASSWORD}
           readinessProbe:
-            exec:
-              command: ["redis-cli", "ping"]
-            initialDelaySeconds: 5
+            exec: {command: [redis-cli, ping]}
             periodSeconds: 5
+          livenessProbe:
+            exec: {command: [redis-cli, ping]}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources: {{ toYaml .Values.redis.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels: {app.kubernetes.io/instance: {{ .Release.Name }}}
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- if .Values.redis.storageClass }}
+        storageClassName: {{ .Values.redis.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests: {storage: {{ .Values.redis.storage }}}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: redis
-  labels:
-    app: redis
-    {{- include "unihub.labels" . | nindent 4 }}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
-  selector:
-    app: redis
-  ports:
-    - port: {{ .Values.redis.port }}
-      targetPort: {{ .Values.redis.port }}
+  selector: {app: redis, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports: [{name: tcp, port: 6379, targetPort: tcp}]
 {{- end }}

@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: logging
+resources:
+- opensearch-dev.yaml
+- opensearch-dashboards.yaml
+- fluent-bit-config.yaml
+- fluent-bit-daemonset.yaml
+- log-retention-job.yaml

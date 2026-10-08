@@ -79,6 +79,9 @@ func AuthMiddleware(secret string, resolvers ...func(context.Context, string) (*
 					authError(w, http.StatusUnauthorized, "Session expired")
 					return
 				}
+				setLogIdentity(r, userID, user.StudentID)
+			} else {
+				setLogIdentity(r, userID, "")
 			}
 
 			ctx := context.WithValue(r.Context(), UserIDKey, userID)

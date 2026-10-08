@@ -137,8 +137,13 @@ private.pem
 deploy/k8s/secret.yaml
 src/web/.env.local
 test.md
-docs/DEVOPS_IMPLEMENTATION_PLAN.md
 docs/gcp-resources-inventory.md
 gcp-resources-inventory.md
 DE_XUAT_MANG_XA_HOI_DOANH_NGHIEP.md
 HUONG_DAN_MANG_XA_HOI_DOANH_NGHIEP.md
+# DevOps generated test credentials and reports
+__pycache__/
+*.pyc
+.devops/
+loadtest-sessions*.json
+loadtest-summary*.json

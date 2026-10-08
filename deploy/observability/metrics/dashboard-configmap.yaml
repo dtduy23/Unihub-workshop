@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unihub-devops-dashboard
+  labels:
+    grafana_dashboard: '1'
+data:
+  unihub-devops.json: "{\n  \"uid\": \"unihub-devops\",\n  \"title\": \"UniHub API\
+    \ and Workers\",\n  \"schemaVersion\": 39,\n  \"version\": 1,\n  \"refresh\":\
+    \ \"10s\",\n  \"time\": {\n    \"from\": \"now-30m\",\n    \"to\": \"now\"\n \
+    \ },\n  \"templating\": {\n    \"list\": [\n      {\n        \"name\": \"DS_PROMETHEUS\"\
+    ,\n        \"type\": \"datasource\",\n        \"query\": \"prometheus\",\n   \
+    \     \"current\": {\n          \"text\": \"Prometheus\",\n          \"value\"\
+    : \"prometheus\"\n        }\n      }\n    ]\n  },\n  \"panels\": [\n    {\n  \
+    \    \"id\": 1,\n      \"type\": \"timeseries\",\n      \"title\": \"API request\
+    \ rate\",\n      \"gridPos\": {\n        \"x\": 0,\n        \"y\": 0,\n      \
+    \  \"w\": 12,\n        \"h\": 8\n      },\n      \"datasource\": {\n        \"\
+    type\": \"prometheus\",\n        \"uid\": \"${DS_PROMETHEUS}\"\n      },\n   \
+    \   \"targets\": [\n        {\n          \"expr\": \"sum(rate(http_requests_total{namespace=~\\\
+    \"unihub.*\\\",path=~\\\"/api/.*\\\"}[5m]))\",\n          \"refId\": \"A\"\n \
+    \       }\n      ],\n      \"fieldConfig\": {\n        \"defaults\": {},\n   \
+    \     \"overrides\": []\n      },\n      \"options\": {\n        \"legend\": {\n\
+    \          \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\n \
+    \       }\n      }\n    },\n    {\n      \"id\": 2,\n      \"type\": \"timeseries\"\
+    ,\n      \"title\": \"API p95 latency\",\n      \"gridPos\": {\n        \"x\"\
+    : 12,\n        \"y\": 0,\n        \"w\": 12,\n        \"h\": 8\n      },\n   \
+    \   \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"\
+    ${DS_PROMETHEUS}\"\n      },\n      \"targets\": [\n        {\n          \"expr\"\
+    : \"histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=~\\\
+    \"unihub.*\\\",path=~\\\"/api/.*\\\"}[5m])))\",\n          \"refId\": \"A\"\n\
+    \        }\n      ],\n      \"fieldConfig\": {\n        \"defaults\": {},\n  \
+    \      \"overrides\": []\n      },\n      \"options\": {\n        \"legend\":\
+    \ {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\
+    \n        }\n      }\n    },\n    {\n      \"id\": 3,\n      \"type\": \"timeseries\"\
+    ,\n      \"title\": \"API 5xx error ratio\",\n      \"gridPos\": {\n        \"\
+    x\": 0,\n        \"y\": 8,\n        \"w\": 12,\n        \"h\": 8\n      },\n \
+    \     \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"\
+    ${DS_PROMETHEUS}\"\n      },\n      \"targets\": [\n        {\n          \"expr\"\
+    : \"sum(rate(http_requests_total{namespace=~\\\"unihub.*\\\",status=~\\\"5..\\\
+    \"}[5m])) / clamp_min(sum(rate(http_requests_total{namespace=~\\\"unihub.*\\\"\
+    }[5m])), 1)\",\n          \"refId\": \"A\"\n        }\n      ],\n      \"fieldConfig\"\
+    : {\n        \"defaults\": {},\n        \"overrides\": []\n      },\n      \"\
+    options\": {\n        \"legend\": {\n          \"displayMode\": \"list\",\n  \
+    \        \"placement\": \"bottom\"\n        }\n      }\n    },\n    {\n      \"\
+    id\": 4,\n      \"type\": \"timeseries\",\n      \"title\": \"Active visitors\
+    \ (global HLL)\",\n      \"gridPos\": {\n        \"x\": 12,\n        \"y\": 8,\n\
+    \        \"w\": 12,\n        \"h\": 8\n      },\n      \"datasource\": {\n   \
+    \     \"type\": \"prometheus\",\n        \"uid\": \"${DS_PROMETHEUS}\"\n     \
+    \ },\n      \"targets\": [\n        {\n          \"expr\": \"max(unihub_active_online_users{namespace=~\\\
+    \"unihub.*\\\"})\",\n          \"refId\": \"A\"\n        }\n      ],\n      \"\
+    fieldConfig\": {\n        \"defaults\": {},\n        \"overrides\": []\n     \
+    \ },\n      \"options\": {\n        \"legend\": {\n          \"displayMode\":\
+    \ \"list\",\n          \"placement\": \"bottom\"\n        }\n      }\n    },\n\
+    \    {\n      \"id\": 5,\n      \"type\": \"timeseries\",\n      \"title\": \"\
+    RabbitMQ queue backlog\",\n      \"gridPos\": {\n        \"x\": 0,\n        \"\
+    y\": 16,\n        \"w\": 12,\n        \"h\": 8\n      },\n      \"datasource\"\
+    : {\n        \"type\": \"prometheus\",\n        \"uid\": \"${DS_PROMETHEUS}\"\n\
+    \      },\n      \"targets\": [\n        {\n          \"expr\": \"sum by (queue)\
+    \ (rabbitmq_queue_messages_ready{namespace=~\\\"unihub.*\\\"})\",\n          \"\
+    refId\": \"A\"\n        }\n      ],\n      \"fieldConfig\": {\n        \"defaults\"\
+    : {},\n        \"overrides\": []\n      },\n      \"options\": {\n        \"legend\"\
+    : {\n          \"displayMode\": \"list\",\n          \"placement\": \"bottom\"\
+    \n        }\n      }\n    },\n    {\n      \"id\": 6,\n      \"type\": \"timeseries\"\
+    ,\n      \"title\": \"Worker replicas\",\n      \"gridPos\": {\n        \"x\"\
+    : 12,\n        \"y\": 16,\n        \"w\": 12,\n        \"h\": 8\n      },\n  \
+    \    \"datasource\": {\n        \"type\": \"prometheus\",\n        \"uid\": \"\
+    ${DS_PROMETHEUS}\"\n      },\n      \"targets\": [\n        {\n          \"expr\"\
+    : \"sum(kube_deployment_status_replicas_available{namespace=~\\\"unihub.*\\\"\
+    ,deployment=\\\"unihub-worker\\\"})\",\n          \"refId\": \"A\"\n        }\n\
+    \      ],\n      \"fieldConfig\": {\n        \"defaults\": {},\n        \"overrides\"\
+    : []\n      },\n      \"options\": {\n        \"legend\": {\n          \"displayMode\"\
+    : \"list\",\n          \"placement\": \"bottom\"\n        }\n      }\n    }\n\
+    \  ]\n}"

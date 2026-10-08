@@ -1,0 +1,12 @@
+api:
+  image:
+    repository: duyd4010/unihub-backend
+    tag: v1.0.0
+worker:
+  image:
+    repository: duyd4010/unihub-backend
+    tag: v1.0.0
+web:
+  image:
+    repository: duyd4010/unihub-web
+    tag: v1.0.0

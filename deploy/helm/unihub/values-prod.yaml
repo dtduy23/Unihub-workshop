@@ -1,121 +1,59 @@
-# ==============================================================================
-# UniHub Platform — Production Values (Self-Hosted / On-Premise / Local K8s)
-# ==============================================================================
-
 global:
   environment: production
-
 api:
   replicaCount: 2
-  image:
-    repository: "unihub-backend"
-    tag: "v1.0.0"
-    pullPolicy: IfNotPresent
-  service:
-    type: ClusterIP
-    nodePort: null
   resources:
     requests:
-      cpu: "250m"
-      memory: "256Mi"
+      cpu: 250m
+      memory: 256Mi
     limits:
-      cpu: "1000m"
-      memory: "1Gi"
+      cpu: 1000m
+      memory: 1Gi
   autoscaling:
     enabled: true
     minReplicas: 2
     maxReplicas: 8
-    targetCPUUtilizationPercentage: 70
-  serviceAccount:
-    create: true
-    name: "unihub-api"
-    annotations: {}
-
 worker:
   replicaCount: 2
-  image:
-    repository: "unihub-backend"
-    tag: "v1.0.0"
-    pullPolicy: IfNotPresent
   resources:
     requests:
-      cpu: "250m"
-      memory: "256Mi"
+      cpu: 250m
+      memory: 256Mi
     limits:
-      cpu: "1000m"
-      memory: "1Gi"
-  serviceAccount:
-    create: true
-    name: "unihub-worker"
-    annotations: {}
-
+      cpu: 1000m
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
 web:
   replicaCount: 2
-  image:
-    repository: "unihub-web"
-    tag: "v1.0.0"
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: "200m"
-      memory: "256Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-
+media:
+  existingClaim: unihub-media
+  accessModes:
+  - ReadWriteMany
+podMonitor:
+  enabled: true
+config:
+  runSeed: 'false'
+  webUrl: https://unihub.example.com
+  corsOrigins: https://unihub.example.com
 ingress:
   enabled: true
-  className: "nginx"
-  annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-next-upstream: "error timeout invalid_header http_502 http_503 http_504"
-    nginx.ingress.kubernetes.io/proxy-next-upstream-tries: "3"
-    nginx.ingress.kubernetes.io/load-balance: "ewma"
-    nginx.ingress.kubernetes.io/limit-rps: "100"
-    nginx.ingress.kubernetes.io/limit-connections: "50"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/websocket-services: "unihub-web-service"
   hosts:
-    - host: "unihub.local"
-      paths:
-        - path: /api
-          pathType: Prefix
-          serviceName: unihub-api-service
-          servicePort: 80
-        - path: /health
-          pathType: Exact
-          serviceName: unihub-api-service
-          servicePort: 80
-        - path: /
-          pathType: Prefix
-          serviceName: unihub-web-service
-          servicePort: 80
+  - host: unihub.example.com
+    paths:
+    - path: /api/v1
+      pathType: Prefix
+      serviceName: unihub-api-service
+      servicePort: 80
+    - path: /
+      pathType: Prefix
+      serviceName: unihub-web-service
+      servicePort: 80
   tls:
-    - secretName: unihub-tls-secret
-      hosts:
-        - unihub.local
-
-config:
-  # In self-hosted cluster, DB can be a dedicated VM/host or in-cluster
-  dbHost: "postgres"
-  dbPort: "5432"
-  dbName: "unihub_workshop"
-  dbUser: "unihub"
-  dbSslMode: "disable"
-  redisAddr: "redis:6379"
-  rabbitmqUrl: "amqp://unihub:unihub-rmq-pass@rabbitmq:5672/"
-  runSeed: "false"
-
-# Production can use in-cluster datastores or external hosts
-postgres:
-  enabled: true
-
-redis:
-  enabled: true
-
-rabbitmq:
-  enabled: true
+  - secretName: unihub-prod-tls
+    hosts:
+    - unihub.example.com
+mailpit:
+  enabled: false

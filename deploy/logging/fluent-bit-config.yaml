@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+data:
+  fluent-bit.conf: "[SERVICE]\n    Flush                 5\n    Log_Level        \
+    \     info\n    Parsers_File          /fluent-bit/etc/parsers.conf\n    HTTP_Server\
+    \           On\n    HTTP_Listen           0.0.0.0\n    HTTP_Port             2020\n\
+    \    storage.path          /buffers/storage\n    storage.sync          normal\n\
+    \    storage.backlog.mem_limit 10M\n[INPUT]\n    Name                  tail\n\
+    \    Path                  /var/log/containers/*.log\n    Tag                \
+    \   kube.*\n    multiline.parser      docker, cri\n    DB                    /buffers/tail.db\n\
+    \    Read_from_Head        On\n    Mem_Buf_Limit         20MB\n    Skip_Long_Lines\
+    \       On\n    Refresh_Interval      5\n    storage.type          filesystem\n\
+    [FILTER]\n    Name                  kubernetes\n    Match                 kube.*\n\
+    \    Kube_Tag_Prefix       kube.var.log.containers.\n    Merge_Log           \
+    \  On\n    Keep_Log              Off\n    Labels                On\n    Annotations\
+    \           Off\n[FILTER]\n    Name                  grep\n    Match         \
+    \        kube.*\n    Regex                 $kubernetes['namespace_name'] ^unihub(-.*)?$\n\
+    [OUTPUT]\n    Name                  opensearch\n    Match                 kube.*\n\
+    \    Host                  opensearch.logging.svc.cluster.local\n    Port    \
+    \              9200\n    Logstash_Format       On\n    Logstash_Prefix       \
+    \ logs-unihub\n    Suppress_Type_Name    On\n    Replace_Dots          On\n  \
+    \  Generate_ID           On\n    Retry_Limit           False\n    storage.total_limit_size\
+    \ 1G\n"
+  parsers.conf: "[PARSER]\n    Name json\n    Format json\n"

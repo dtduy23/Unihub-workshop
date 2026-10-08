@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: unihub-staging
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '10'
+spec:
+  project: unihub
+  source:
+    repoURL: https://github.com/dtduy23/Unihub-workshop.git
+    targetRevision: main
+    path: deploy/helm/unihub
+    helm:
+      releaseName: unihub
+      valueFiles:
+      - values-staging.yaml
+      - images-staging.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: unihub-staging
+  syncPolicy:
+    syncOptions:
+    - CreateNamespace=true
+    - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    automated:
+      prune: true
+      selfHeal: true
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    name: unihub-api
+    jsonPointers:
+    - /spec/replicas
+  - group: apps
+    kind: Deployment
+    name: unihub-worker
+    jsonPointers:
+    - /spec/replicas

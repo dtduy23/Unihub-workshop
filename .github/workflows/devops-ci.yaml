@@ -1,0 +1,67 @@
+name: UniHub DevOps
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pull-request:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: unihub
+          POSTGRES_PASSWORD: integration-only
+          POSTGRES_DB: unihub_test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U unihub -d unihub_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: src/backend/go.mod, cache-dependency-path: src/backend/go.sum}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm, cache-dependency-path: src/web/package-lock.json}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - uses: azure/setup-helm@v4
+        with: {version: v3.17.2}
+      - uses: azure/setup-kubectl@v4
+        with: {version: v1.32.2}
+      - run: pip install PyYAML==6.0.2
+      - name: Go integration and race tests
+        working-directory: src/backend
+        env:
+          TEST_DATABASE_URL: postgres://unihub:integration-only@127.0.0.1:5432/unihub_test?sslmode=disable
+        run: |
+          go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0 run
+          go test -race -count=1 ./...
+      - run: bash scripts/devops/validate.sh
+      - name: Web checks
+        working-directory: src/web
+        env: {NEXT_TELEMETRY_DISABLED: '1'}
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run build
+  argo-ci:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, linux, unihub-ci]
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Submit trusted main commit to Argo
+        env:
+          GIT_SHA: ${{ github.sha }}
+          IMAGE_REGISTRY: ${{ vars.CONTAINER_REGISTRY }}
+          PROMOTE: 'true'
+        run: bash scripts/devops/submit-ci.sh

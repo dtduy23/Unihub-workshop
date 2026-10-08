@@ -1,0 +1,18 @@
+# Small local cluster: RWO uploads require one API replica.
+global: {environment: demo}
+api:
+  replicaCount: 1
+  autoscaling: {enabled: false, keda: {enabled: false}}
+worker:
+  replicaCount: 1
+  autoscaling: {enabled: true, minReplicas: 1, maxReplicas: 20}
+web: {replicaCount: 1}
+media:
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+podMonitor: {enabled: true}
+ingress: {enabled: false, tls: []}
+config:
+  runSeed: "true"
+  webUrl: http://localhost:3000
+  corsOrigins: http://localhost:3000,http://127.0.0.1:3000

@@ -1,0 +1,43 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: unihub-alerts
+  labels:
+    release: monitoring
+spec:
+  groups:
+  - name: unihub
+    rules:
+    - alert: UniHubAPIHighLatency
+      expr: histogram_quantile(0.95, sum by (le, namespace) (rate(http_request_duration_seconds_bucket{namespace=~"unihub.*",path=~"/api/.*"}[5m])))
+        > 0.2
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: UniHub API p95 above 200ms
+    - alert: UniHubAPIHighErrorRate
+      expr: sum by (namespace) (rate(http_requests_total{namespace=~"unihub.*",status=~"5.."}[5m]))
+        / clamp_min(sum by (namespace) (rate(http_requests_total{namespace=~"unihub.*"}[5m])),
+        1) > 0.005
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: UniHub server error rate above 0.5%
+    - alert: UniHubQueueBacklog
+      expr: sum by (namespace, queue) (rabbitmq_queue_messages_ready{namespace=~"unihub.*"})
+        > 1000
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: RabbitMQ backlog remains above 1000 messages
+    - alert: UniHubWorkerUnavailable
+      expr: kube_deployment_status_replicas_available{deployment="unihub-worker",namespace=~"unihub.*"}
+        < 1
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: UniHub has no ready worker

@@ -1,17 +1,21 @@
-{{- if and .Values.api.enabled .Values.podMonitor.enabled -}}
+{{- if .Values.podMonitor.enabled }}
+{{- range $role := list "api" "worker" }}
+{{- if (index $.Values $role).enabled }}
+---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: unihub-api-metrics
+  name: unihub-{{ $role }}-metrics
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
   labels:
-    {{- include "unihub.labels" . | nindent 4 }}
-    app.kubernetes.io/component: monitoring
+    {{- toYaml $.Values.podMonitor.labels | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      app: unihub-api
+      {{- include (printf "unihub.%s.selectorLabels" $role) $ | nindent 6 }}
+  podTargetLabels: [app]
   podMetricsEndpoints:
-    - port: http
-      path: {{ .Values.podMonitor.path }}
-      interval: {{ .Values.podMonitor.interval }}
+    - {port: http, path: {{ $.Values.podMonitor.path }}, interval: {{ $.Values.podMonitor.interval }}}
+{{- end }}
+{{- end }}
 {{- end }}

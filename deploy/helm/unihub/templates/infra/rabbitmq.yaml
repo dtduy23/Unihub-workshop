@@ -1,76 +1,87 @@
-{{- if .Values.rabbitmq.enabled -}}
+{{- if .Values.rabbitmq.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: rabbitmq
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
   labels:
-    app: rabbitmq
     {{- include "unihub.labels" . | nindent 4 }}
 spec:
   serviceName: rabbitmq
   replicas: 1
   selector:
-    matchLabels:
-      app: rabbitmq
+    matchLabels: {app: rabbitmq, app.kubernetes.io/instance: {{ .Release.Name }}}
   template:
     metadata:
-      labels:
-        app: rabbitmq
+      labels: {app: rabbitmq, app.kubernetes.io/instance: {{ .Release.Name }}}
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: rabbitmq
           image: "{{ .Values.rabbitmq.image.repository }}:{{ .Values.rabbitmq.image.tag }}"
           imagePullPolicy: {{ .Values.rabbitmq.image.pullPolicy }}
-          ports:
-            - containerPort: {{ .Values.rabbitmq.ports.amqp }}
-              name: amqp
-            - containerPort: {{ .Values.rabbitmq.ports.management }}
-              name: management
+          ports: [{name: amqp, containerPort: 5672}, {name: management, containerPort: 15672}, {name: metrics, containerPort: 15692}]
           env:
-            - name: RABBITMQ_DEFAULT_USER
-              value: {{ .Values.rabbitmq.user | quote }}
+            - {name: RABBITMQ_DEFAULT_USER, value: {{ .Values.rabbitmq.user | quote }}}
             - name: RABBITMQ_DEFAULT_PASS
-              value: {{ .Values.rabbitmq.password | quote }}
-          resources:
-            {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
+              valueFrom:
+                secretKeyRef: {name: {{ include "unihub.secretName" . }}, key: RABBITMQ_PASSWORD}
+          startupProbe:
+            exec: {command: [rabbitmq-diagnostics, -q, ping]}
+            periodSeconds: 5
+            failureThreshold: 60
           readinessProbe:
-            tcpSocket:
-              port: {{ .Values.rabbitmq.ports.amqp }}
-            initialDelaySeconds: 10
+            exec: {command: [rabbitmq-diagnostics, -q, check_running]}
             periodSeconds: 10
           livenessProbe:
-            tcpSocket:
-              port: {{ .Values.rabbitmq.ports.amqp }}
-            initialDelaySeconds: 30
+            exec: {command: [rabbitmq-diagnostics, -q, ping]}
             periodSeconds: 30
+          resources: {{ toYaml .Values.rabbitmq.resources | nindent 12 }}
           volumeMounts:
-            - name: rabbitmq-data
-              mountPath: /var/lib/rabbitmq
+            - {name: data, mountPath: /var/lib/rabbitmq}
+            - {name: plugins, mountPath: /etc/rabbitmq/enabled_plugins, subPath: enabled_plugins}
+      volumes:
+        - name: plugins
+          configMap: {name: rabbitmq-plugins}
   volumeClaimTemplates:
     - metadata:
-        name: rabbitmq-data
+        name: data
+        labels: {app.kubernetes.io/instance: {{ .Release.Name }}}
       spec:
-        accessModes: ["ReadWriteOnce"]
+        accessModes: [ReadWriteOnce]
+        {{- if .Values.rabbitmq.storageClass }}
+        storageClassName: {{ .Values.rabbitmq.storageClass | quote }}
+        {{- end }}
         resources:
-          requests:
-            storage: {{ .Values.rabbitmq.storage }}
+          requests: {storage: {{ .Values.rabbitmq.storage }}}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: rabbitmq
-  labels:
-    app: rabbitmq
-    {{- include "unihub.labels" . | nindent 4 }}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
 spec:
-  type: ClusterIP
+  selector: {app: rabbitmq, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports: [{name: amqp, port: 5672, targetPort: amqp}, {name: management, port: 15672, targetPort: management}, {name: metrics, port: 15692, targetPort: metrics}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-plugins
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+data:
+  enabled_plugins: "[rabbitmq_management,rabbitmq_prometheus]."
+{{- if .Values.podMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: rabbitmq-metrics
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+  labels: {{ toYaml .Values.podMonitor.labels | nindent 4 }}
+spec:
   selector:
-    app: rabbitmq
-  ports:
-    - name: amqp
-      port: {{ .Values.rabbitmq.ports.amqp }}
-      targetPort: {{ .Values.rabbitmq.ports.amqp }}
-    - name: management
-      port: {{ .Values.rabbitmq.ports.management }}
-      targetPort: {{ .Values.rabbitmq.ports.management }}
+    matchLabels: {app: rabbitmq, app.kubernetes.io/instance: {{ .Release.Name }}}
+  podMetricsEndpoints: [{port: metrics, path: /metrics/per-object, interval: {{ .Values.podMonitor.interval }}}]
+{{- end }}
 {{- end }}

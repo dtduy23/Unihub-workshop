@@ -1,0 +1,34 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: unihub-demo
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '10'
+spec:
+  project: unihub
+  source:
+    repoURL: http://git-demo.unihub-demo.svc.cluster.local:8080/repo.git
+    targetRevision: main
+    path: deploy/helm/unihub
+    helm:
+      releaseName: unihub
+      valueFiles:
+      - values-demo.yaml
+      - images-demo.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: unihub-demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - RespectIgnoreDifferences=true
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    name: unihub-worker
+    jsonPointers:
+    - /spec/replicas

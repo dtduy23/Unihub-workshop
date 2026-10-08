@@ -32,8 +32,11 @@ func NewPostgresPool(cfg *config.Config) *pgxpool.Pool {
 		log.Fatalf("Unable to parse database config: %v", err)
 	}
 
-	poolCfg.MaxConns = 50
-	poolCfg.MinConns = 10
+	if cfg.DBMaxConns < 1 || cfg.DBMinConns < 0 || cfg.DBMinConns > cfg.DBMaxConns {
+		log.Fatal("DB pool requires DB_MAX_CONNS >= 1 and 0 <= DB_MIN_CONNS <= DB_MAX_CONNS")
+	}
+	poolCfg.MaxConns = int32(cfg.DBMaxConns)
+	poolCfg.MinConns = int32(cfg.DBMinConns)
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 

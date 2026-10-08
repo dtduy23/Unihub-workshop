@@ -14,7 +14,7 @@ var Log *slog.Logger
 func Init() {
 	Log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
-	}))
+	})).With("service", "unihub-"+os.Getenv("APP_MODE"))
 
 	slog.SetDefault(Log)
 

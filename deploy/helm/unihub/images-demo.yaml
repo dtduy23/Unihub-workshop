@@ -1,0 +1,12 @@
+api:
+  image:
+    repository: unihub-backend
+    tag: v1.0.0
+worker:
+  image:
+    repository: unihub-backend
+    tag: v1.0.0
+web:
+  image:
+    repository: unihub-web
+    tag: v1.0.0

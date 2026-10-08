@@ -1,13 +1,15 @@
-{{- if .Values.worker.enabled -}}
+{{- if .Values.worker.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: unihub-worker
+  annotations: {argocd.argoproj.io/sync-wave: "3"}
   labels:
     {{- include "unihub.labels" . | nindent 4 }}
-    app.kubernetes.io/component: worker
 spec:
+  {{- if not .Values.worker.autoscaling.enabled }}
   replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "unihub.worker.selectorLabels" . | nindent 6 }}
@@ -15,20 +17,50 @@ spec:
     metadata:
       labels:
         {{- include "unihub.worker.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
     spec:
-      serviceAccountName: {{ .Values.worker.serviceAccount.name | default "unihub-worker" }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.worker.serviceAccount.name }}
       containers:
         - name: worker
-          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
           imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
-          env:
-            - name: APP_MODE
-              value: "worker"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          ports: [{name: http, containerPort: 8080}]
+          env: [{name: APP_MODE, value: worker}]
           envFrom:
-            - configMapRef:
-                name: unihub-config
-            - secretRef:
-                name: unihub-secret
-          resources:
-            {{- toYaml .Values.worker.resources | nindent 12 }}
+            - configMapRef: {name: unihub-config}
+            - secretRef: {name: {{ include "unihub.secretName" . }}}
+          volumeMounts:
+            - {name: data, mountPath: /app/data}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources: {{ toYaml .Values.worker.resources | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.media.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default "unihub-media" .Values.media.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
 {{- end }}

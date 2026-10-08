@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: '1'
+spec:
+  project: unihub-infra
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 69.7.3
+    helm:
+      releaseName: monitoring
+      values: "grafana:\n  sidecar:\n    dashboards:\n      searchNamespace: ALL\n\
+        prometheus:\n  prometheusSpec:\n    podMonitorSelectorNilUsesHelmValues: false\n\
+        \    ruleSelectorNilUsesHelmValues: false\n    retention: 7d\n    resources:\n\
+        \      requests: {cpu: 100m, memory: 256Mi}\n      limits: {memory: 1Gi}\n"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true

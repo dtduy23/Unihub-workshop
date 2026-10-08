@@ -1,109 +1,106 @@
-# ==============================================================================
-# UniHub Platform — Helm Default Values (Development / Local Minikube)
-# ==============================================================================
-
 global:
   environment: development
-
-nameOverride: ""
-fullnameOverride: ""
-
-# --- Backend API Service ---
+nameOverride: ''
+fullnameOverride: ''
+imagePullSecrets: []
+secrets:
+  create: false
+  existingSecret: unihub-secret
+  dbPassword: ''
+  authSecret: ''
+  rsaPrivateKey: ''
+  rabbitmqPassword: ''
+  rabbitmqUrl: ''
+  redisPassword: ''
+  geminiApiKey: ''
+  smtpUser: ''
+  smtpPass: ''
 api:
   enabled: true
-  replicaCount: 2
+  replicaCount: 1
   image:
     repository: duyd4010/unihub-backend
-    tag: "latest"
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   service:
-    type: NodePort
+    type: ClusterIP
     port: 80
     targetPort: 8080
     nodePort: 30080
   resources:
     requests:
-      cpu: "100m"
-      memory: "128Mi"
+      cpu: 100m
+      memory: 128Mi
     limits:
-      cpu: "500m"
-      memory: "512Mi"
+      cpu: 1000m
+      memory: 512Mi
   autoscaling:
-    enabled: true
-    minReplicas: 2
+    enabled: false
+    minReplicas: 1
     maxReplicas: 16
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
     presence:
-      enabled: true
-      metricName: "unihub_active_online_users"
+      enabled: false
+      metricName: unihub_active_online_users
       targetActiveUsersPerPod: 150
+    keda:
+      enabled: false
+      prometheusServer: http://monitoring-kube-prometheus-prometheus.monitoring.svc:9090
     scaleUp:
       stabilizationWindowSeconds: 0
       selectPolicy: Max
       policies:
-        - type: Pods
-          value: 16
-          periodSeconds: 15
-        - type: Percent
-          value: 1000
-          periodSeconds: 15
+      - type: Percent
+        value: 100
+        periodSeconds: 15
     scaleDown:
       stabilizationWindowSeconds: 300
       selectPolicy: Min
       policies:
-        - type: Percent
-          value: 50
-          periodSeconds: 60
+      - type: Percent
+        value: 50
+        periodSeconds: 60
   serviceAccount:
     create: true
-    name: "unihub-api"
+    name: unihub-api
     annotations: {}
-  probes:
-    readiness:
-      path: /health
-      initialDelaySeconds: 5
-      periodSeconds: 10
-      timeoutSeconds: 3
-      failureThreshold: 3
-    liveness:
-      path: /health
-      initialDelaySeconds: 15
-      periodSeconds: 20
-      timeoutSeconds: 5
-      failureThreshold: 3
   topologySpreadConstraints:
     enabled: true
-    maxSkew: 3
+    maxSkew: 1
     topologyKey: kubernetes.io/hostname
     whenUnsatisfiable: ScheduleAnyway
-
-# --- Background Worker Service ---
 worker:
   enabled: true
   replicaCount: 1
   image:
     repository: duyd4010/unihub-backend
-    tag: "latest"
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   resources:
     requests:
-      cpu: "100m"
-      memory: "128Mi"
+      cpu: 100m
+      memory: 128Mi
     limits:
-      cpu: "500m"
-      memory: "512Mi"
+      cpu: 1000m
+      memory: 512Mi
   serviceAccount:
     create: true
-    name: "unihub-worker"
+    name: unihub-worker
     annotations: {}
-
-# --- Frontend Web (Next.js) ---
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 20
+    queueLength: 50
+    pollingInterval: 15
+    cooldownPeriod: 300
 web:
   enabled: true
   replicaCount: 1
   image:
     repository: duyd4010/unihub-web
-    tag: "latest"
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -111,168 +108,119 @@ web:
     targetPort: 3000
   resources:
     requests:
-      cpu: "100m"
-      memory: "128Mi"
+      cpu: 100m
+      memory: 128Mi
     limits:
-      cpu: "500m"
-      memory: "512Mi"
-  probes:
-    readiness:
-      path: /login
-      initialDelaySeconds: 5
-      periodSeconds: 10
-      timeoutSeconds: 3
-    liveness:
-      path: /login
-      initialDelaySeconds: 10
-      periodSeconds: 30
-      timeoutSeconds: 5
+      cpu: 1000m
+      memory: 512Mi
   env:
-    NEXT_PUBLIC_API_URL: "http://unihub-api-service"
-
-# --- Ingress ---
-ingress:
-  enabled: false
-  className: "nginx"
-  annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/load-balance: "ewma"
-    # nginx.ingress.kubernetes.io/limit-rps: "100"
-    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
-  hosts:
-    - host: ""
-      paths:
-        - path: /api
-          pathType: Prefix
-          serviceName: unihub-api-service
-          servicePort: 80
-        - path: /health
-          pathType: Exact
-          serviceName: unihub-api-service
-          servicePort: 80
-        - path: /
-          pathType: Prefix
-          serviceName: unihub-web-service
-          servicePort: 80
-  tls: []
-
-# --- PodMonitoring (Prometheus Operator - optional, annotations used by default) ---
+    API_INTERNAL_URL: http://unihub-api-service
+media:
+  enabled: true
+  existingClaim: ''
+  storageClass: ''
+  accessModes:
+  - ReadWriteOnce
+  size: 5Gi
+migrations:
+  enabled: true
+  activeDeadlineSeconds: 300
+  backoffLimit: 3
 podMonitor:
   enabled: false
   interval: 15s
   path: /metrics
-
-# --- Application Configuration (ConfigMap) ---
+  labels:
+    release: monitoring
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m
+  hosts:
+  - host: unihub.local
+    paths:
+    - path: /api/v1
+      pathType: Prefix
+      serviceName: unihub-api-service
+      servicePort: 80
+    - path: /
+      pathType: Prefix
+      serviceName: unihub-web-service
+      servicePort: 80
+  tls: []
 config:
-  dbHost: "postgres"
-  dbPort: "5432"
-  dbName: "unihub_workshop"
-  dbUser: "unihub"
-  dbSslMode: "disable"
-  redisAddr: "redis:6379"
-  redisPassword: ""
-  redisDb: "0"
-  rabbitmqUrl: "amqp://unihub:unihub-rmq-pass@rabbitmq:5672/"
-  serverPort: "8080"
-  corsOrigins: "http://localhost:3000,http://127.0.0.1:3000"
-  smtpHost: "mailhog"
-  smtpPort: "1025"
-  smtpFrom: "noreply@unihub.edu.vn"
-  geminiModel: "gemini-1.5-flash"
-  aiTemperature: "0.4"
-  aiMaxTokens: "16384"
-  csvImportDir: "./data/imports"
-  csvArchiveDir: "./data/archive"
-  rateLimitCapacity: "5000"
-  rateLimitRefillRate: "1000"
-  rateLimitTTL: "300"
-  runSeed: "true"
-  paymentGatewayUrl: "http://unihub-api-service/mock/payment"
-
-# --- Application Secrets (unihub-secret) ---
-secrets:
-  dbPassword: "unihub_pass"
-  authSecret: "unihub-jwt-super-secret-key-32bytes-min!"
-  rsaPrivateKey: |
-    -----BEGIN PRIVATE KEY-----
-    MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDdP+Yagyc+eGBP
-    kwM/Qcn908Ic1tOEtMiUiUYnsvlsjR4OMPH9PW7yd8cY3iYqiB+IDxEEVCjJ4XLp
-    NxgnVMiyQ1jf33qzLqvRccbp0JedvtGhPvfo3hmtpqnpaafGpdQB4UTWY39LiKT0
-    Q1DFeatNU1hXPdXeKwC/h4X9aGU3/EAtR0uQ3mrhEnF+wbvKl6vW+xcmiIXRjFei
-    yZY64TTYSL6SI7xdsds6lrAHyoy4WoploDx8Ri2OpgF+VQNscmvphgAEJGq5lcoU
-    8TCygDKsqBnljV017IpRrV+cmoz+C41dIW7fWHPW55Lw8uRnB6oPSy0spyYGOFt6
-    AnciPXEtAgMBAAECggEABJHAxVRnF5Wx24LcQs6vhsP8Us8nACshp1usbL54A0No
-    1v8wyDugEnbh0EQqQp+cExnIjq/URdMXpfRi1dEc8f2NFNaPOKsilklEw+hwcSwT
-    NULRKOiJXDpAcRcjBWnAVqeZ3dmhM+SnD3pibSmlnYu2m9qlk5iMw+ffHwwsZvsP
-    XUh0ApmmjX1gEqCaJ6i96rdzg2XJ5fw6DbIPW8e6VfSz6c1dCiG7+2ZiZVMuafvh
-    E/P1fPGTBwwTk9VThrMmRYYlJx1UXPDmfLf3uh+GL5gt7XUQS7mdsRlqpkxL4mDW
-    4zh9sgcl77AOV8KYyYH0jYYc5AT2LfSZKkYqhyboQQKBgQDyPanh9FIYjIhCei2t
-    NyRYl0xABk7lXuY2Z6q2fkvwgTreJ+Iu8qEGEmj5NIyVjpUN0m5bTjLKXl7GmZ6M
-    nH4NRqbFfdUWlSpCKmEs4dvBjt3so7fDn6nLJo7+M/F0k1wnIBNDW+O7sSs40IZ6
-    H9OqMbZbheP/nxauNl1MfQ5KjQKBgQDp0QJDTPwS8SkktZRhv3Hka8cBtfdfPNCt
-    xq8VGqncd8ScIoUa5TKqw60jWf08ErxNOjKlts/Gjuw7AUp9/qOEntI9N9IHNLsT
-    21hrEWACcoyzzcyRZjxtIsaq2U2cr8Xzg6CUYzy9qdnaHTg0Kh/YPqxJ0wx/mQMD
-    cPnYBpppIQKBgG/ip1qj/F82WaFKyVoeA/2fNCrGPx6WLIKocyMDRpP5PHVrun6w
-    tksVqcKg0OYrCxFtRmeJwM/TsrbMMX0EsvvyzAifzBI4J2KULHoMf/HwyPQJ0lDa
-    qBQa5SToXPfZMFEp8XvFL3R7qlj9h39Uv/D2MSIov1xL4K/qkEFJ6ZXpAoGBAMv3
-    KfQvqg2UFoIRbFlAuke6xSV26U5JLPkKwxyz382VJQvXCSoHGoXgoJ6gF8pZxa3Q
-    wPHSYboiX2yxmZwDj/1W1qvUkAD9PNz7kUwFIi3AY4FOW8/S0Y+asJfFbHDs3M+q
-    2V/YmdoR2xrsNmU7AgCP25ei5dpBTmGoIisSx4xBAoGAZF+vhjdyqj7f23Ws/G1Z
-    d/5IoX6OJggcLiNO83PDfyJmbvkVQI8GGuWU953/paZ0sp+JmUxRehBjVdiZFdd0
-    6xoZkRgowlfkiXG4Cn/KETQ1Q9IDcy351Wq+H6Lwtt5CW0exGBrAF0Ak/NoDbjnh
-    sNhvc99FjKrjLzSbkeQB4Ks=
-    -----END PRIVATE KEY-----
-  geminiApiKey: ""
-  smtpUser: ""
-  smtpPass: ""
-
-# --- In-Cluster Infrastructure (Dev/Local minikube only) ---
+  dbHost: postgres
+  dbPort: '5432'
+  dbName: unihub_workshop
+  dbUser: unihub
+  dbSslMode: disable
+  dbMaxConns: '10'
+  dbMinConns: '2'
+  redisAddr: redis:6379
+  redisDb: '0'
+  serverPort: '8080'
+  corsOrigins: http://localhost:3000,http://127.0.0.1:3000
+  webUrl: http://localhost:3000
+  mediaDir: /app/data/media
+  smtpHost: mailhog
+  smtpPort: '1025'
+  smtpFrom: noreply@unihub.edu.vn
+  geminiModel: gemini-1.5-flash
+  aiTemperature: '0.4'
+  aiMaxTokens: '16384'
+  csvImportDir: /app/data/imports
+  csvArchiveDir: /app/data/archive
+  rateLimitCapacity: '5000'
+  rateLimitRefillRate: '1000'
+  rateLimitTTL: '300'
+  runSeed: 'false'
 postgres:
   enabled: true
   image:
     repository: postgres
-    tag: "16-alpine"
+    tag: 16-alpine
     pullPolicy: IfNotPresent
-  database: "unihub_workshop"
-  user: "unihub"
-  password: "unihub_pass"
-  port: 5432
+  storage: 8Gi
+  storageClass: ''
   resources:
     requests:
-      memory: "256Mi"
+      cpu: 100m
+      memory: 256Mi
     limits:
-      memory: "512Mi"
-
+      cpu: 1000m
+      memory: 512Mi
 redis:
   enabled: true
   image:
     repository: redis
-    tag: "7-alpine"
+    tag: 7-alpine
     pullPolicy: IfNotPresent
-  port: 6379
+  storage: 1Gi
+  storageClass: ''
   resources:
     requests:
-      memory: "64Mi"
+      cpu: 50m
+      memory: 64Mi
     limits:
-      memory: "256Mi"
-
+      cpu: 500m
+      memory: 256Mi
 rabbitmq:
   enabled: true
   image:
     repository: rabbitmq
-    tag: "3-management-alpine"
+    tag: 3.13-management-alpine
     pullPolicy: IfNotPresent
-  user: "unihub"
-  password: "unihub-rmq-pass"
-  ports:
-    amqp: 5672
-    management: 15672
+  user: unihub
   storage: 8Gi
+  storageClass: ''
   resources:
     requests:
-      cpu: "250m"
-      memory: "256Mi"
+      cpu: 250m
+      memory: 256Mi
     limits:
-      cpu: "500m"
-      memory: "512Mi"
+      cpu: 1000m
+      memory: 768Mi
+mailpit:
+  enabled: true
+  image: axllent/mailpit:v1.24.0

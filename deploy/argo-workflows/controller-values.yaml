@@ -1,0 +1,13 @@
+# Local demo: expose server auth only through port-forward.
+controller:
+  workflowNamespaces:
+  - unihub-ci
+  workflowDefaults:
+    spec:
+      ttlStrategy:
+        secondsAfterCompletion: 86400
+server:
+  enabled: true
+  secure: true
+  authModes:
+  - server

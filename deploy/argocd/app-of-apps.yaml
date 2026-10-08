@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: unihub-platform
+  namespace: argocd
+spec:
+  project: unihub-infra
+  source:
+    repoURL: https://github.com/dtduy23/Unihub-workshop.git
+    targetRevision: main
+    path: deploy/argocd
+    directory:
+      recurse: true
+      include: '{application-staging.yaml,apps/*.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

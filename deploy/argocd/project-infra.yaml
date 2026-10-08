@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: unihub-infra
+  namespace: argocd
+spec:
+  description: Administrators bootstrap monitoring, KEDA and local logging.
+  sourceRepos:
+  - https://github.com/dtduy23/Unihub-workshop.git
+  - https://prometheus-community.github.io/helm-charts
+  - https://kedacore.github.io/charts
+  - https://kubernetes-sigs.github.io/metrics-server/
+  destinations:
+  - namespace: argocd
+    server: https://kubernetes.default.svc
+  - namespace: monitoring
+    server: https://kubernetes.default.svc
+  - namespace: keda
+    server: https://kubernetes.default.svc
+  - namespace: logging
+    server: https://kubernetes.default.svc
+  - namespace: kube-system
+    server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'
