@@ -9,4 +9,4 @@ Open web and API in separate terminals:
   kubectl port-forward -n {{ .Release.Namespace }} svc/unihub-api-service 8080:80
 
 Probes: /health and /ready. Prometheus: /metrics (API and worker pods).
-Setup, GitOps, k6 and storage requirements: docs/DEVOPS_PLAYBOOK.md
+Setup, GitOps, k6 and storage requirements: README.md

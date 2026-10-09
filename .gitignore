@@ -25,9 +25,10 @@ next-env.d.ts
 # Environment Variables
 # ========================
 .env
-.env.local
-.env.*.local
-.env*.local
+.env.*
+# Keep templates needed to configure a fresh checkout.
+!.env.example
+!.env.*.example
 
 # ========================
 # Debug & Logs
@@ -39,6 +40,13 @@ pnpm-debug.log*
 *.log
 *.pid
 coverage/
+htmlcov/
+.coverage
+.coverage.*
+test-results/
+playwright-report/
+blob-report/
+.nyc_output/
 
 # ========================
 # IDE & Editor
@@ -57,6 +65,11 @@ Thumbs.db
 .DS_Store
 Thumbs.db
 *.tmp
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.turbo/
 
 # ========================
 # Go Specific
@@ -83,6 +96,8 @@ docker-compose.override.yml
 *.sqlite
 src/backend/data/imports/
 src/backend/data/archive/
+unihub-students*.csv
+unihub-sessions*.json
 
 # ========================
 # Microsoft Office & Temp Files
@@ -97,11 +112,16 @@ src/backend/data/archive/
 # ========================
 # Project Specific Docs
 # ========================
-# Ignore documents generally but keep blueprint folder clean
+# Keep local guides, plans and specifications out of Git.
+# The root README is the public project documentation.
+*.md
+*.markdown
+*.rst
+*.adoc
+!/README.md
 *.docx
 *.doc
 *.pdf
-!blueprint/**/*.pdf
 
 # Keep these specific project files ignored as per origin/back-end
 context project môn học.docx
@@ -121,7 +141,9 @@ src/backend/data
 *.tfstate.*
 *.tfstate.backup
 .terraform/
-.terraform.lock.hcl
+# Provider lock files stay in source for reproducible Terraform runs.
+*.tfplan
+*.tfplan.json
 terraform.tfvars
 *.auto.tfvars
 crash.log
@@ -136,14 +158,12 @@ private.pem
 # ========================
 deploy/k8s/secret.yaml
 src/web/.env.local
-test.md
-docs/gcp-resources-inventory.md
-gcp-resources-inventory.md
-DE_XUAT_MANG_XA_HOI_DOANH_NGHIEP.md
-HUONG_DAN_MANG_XA_HOI_DOANH_NGHIEP.md
 # DevOps generated test credentials and reports
 __pycache__/
 *.pyc
 .devops/
 loadtest-sessions*.json
 loadtest-summary*.json
+src/backend/loadtest-seed
+/unihub-*.tgz
+/deploy/helm/unihub-*.tgz

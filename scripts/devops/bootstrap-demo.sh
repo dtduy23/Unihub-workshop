@@ -68,4 +68,4 @@ kubectl wait -n argocd --for=jsonpath='{.status.operationState.syncResult.revisi
 kubectl wait -n argocd --for=jsonpath='{.status.operationState.phase}'=Succeeded application/unihub-demo --timeout=20m
 kubectl wait -n argocd --for=jsonpath='{.status.health.status}'=Healthy application/unihub-demo --timeout=10m
 bash scripts/devops/run-loadtest.sh unihub-demo "unihub-backend:$revision"
-echo "Demo is ready. Use KUBECONFIG=$KUBECONFIG and the port-forward commands in docs/DEVOPS_PLAYBOOK.md."
+echo "Demo is ready. Use KUBECONFIG=$KUBECONFIG and the port-forward commands in README.md (Kubernetes demo)."
