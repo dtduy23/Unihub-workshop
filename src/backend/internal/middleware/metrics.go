@@ -6,35 +6,16 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"unihub-workshop/internal/metrics"
 )
 
-// ResponseWriterWrapper intercepts ResponseWriter to capture status code and bytes written
-type ResponseWriterWrapper struct {
-	http.ResponseWriter
-	StatusCode int
-	Written    int64
-}
-
-// NewResponseWriterWrapper creates a wrapper with default 200 status
-func NewResponseWriterWrapper(w http.ResponseWriter) *ResponseWriterWrapper {
-	return &ResponseWriterWrapper{
-		ResponseWriter: w,
-		StatusCode:     http.StatusOK,
+func responseStatus(w chimw.WrapResponseWriter) int {
+	if status := w.Status(); status != 0 {
+		return status
 	}
-}
-
-// WriteHeader captures status code
-func (rw *ResponseWriterWrapper) WriteHeader(code int) {
-	rw.StatusCode = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-// Write captures bytes written
-func (rw *ResponseWriterWrapper) Write(b []byte) (int, error) {
-	n, err := rw.ResponseWriter.Write(b)
-	rw.Written += int64(n)
-	return n, err
+	// net/http sends 200 when a handler returns without an explicit header.
+	return http.StatusOK
 }
 
 // MetricsMiddleware records request count, latency histogram, and in-flight gauge
@@ -45,11 +26,11 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 		metrics.RequestsInFlight.Inc()
 		defer metrics.RequestsInFlight.Dec()
 
-		ww := NewResponseWriterWrapper(w)
+		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 
 		duration := time.Since(start).Seconds()
-		statusStr := strconv.Itoa(ww.StatusCode)
+		statusStr := strconv.Itoa(responseStatus(ww))
 
 		// Use Chi route pattern to normalize paths (e.g. "/api/v1/workshops/{id}")
 		path := r.URL.Path

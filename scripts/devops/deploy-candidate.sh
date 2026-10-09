@@ -11,7 +11,7 @@ helm upgrade --install unihub-ci deploy/helm/unihub -n "$CI_NAMESPACE" \
   --set api.image.repository="$IMAGE_REGISTRY/unihub-backend" --set api.image.tag="$GIT_SHA" \
   --set worker.image.repository="$IMAGE_REGISTRY/unihub-backend" --set worker.image.tag="$GIT_SHA" \
   --set web.image.repository="$IMAGE_REGISTRY/unihub-web" --set web.image.tag="$GIT_SHA" \
-  --set config.dbName=unihub_ci_test --set config.runSeed=false \
+  --set config.dbName=unihub_ci_test --set-string config.runSeed=false \
   --set media.enabled=false --set worker.autoscaling.enabled=false --set podMonitor.enabled=false \
   --wait --timeout 8m
 kubectl -n "$CI_NAMESPACE" rollout status deploy/unihub-worker --timeout=180s

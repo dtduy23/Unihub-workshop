@@ -38,7 +38,7 @@ func StructuredLogger(next http.Handler) http.Handler {
 		r = r.WithContext(context.WithValue(r.Context(), requestLogKey{}, fields))
 		w.Header().Set("X-Request-ID", middleware.GetReqID(r.Context()))
 
-		ww := NewResponseWriterWrapper(w)
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 
 		slog.Info("http request",
@@ -46,14 +46,14 @@ func StructuredLogger(next http.Handler) http.Handler {
 			"correlation_id", fields.correlationID,
 			"method", r.Method,
 			"path", r.URL.Path,
-			"status", ww.StatusCode,
+			"status", responseStatus(ww),
 			"latency_ms", time.Since(start).Milliseconds(),
 			"duration", time.Since(start).Seconds(),
 			"remote_ip", r.RemoteAddr,
 			"user_agent", r.UserAgent(),
 			"user_id", fields.userID,
 			"student_id", fields.studentID,
-			"size_bytes", ww.Written,
+			"size_bytes", ww.BytesWritten(),
 		)
 	})
 }

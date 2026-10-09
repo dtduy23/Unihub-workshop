@@ -7,10 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	dto "github.com/prometheus/client_model/go"
+	"unihub-workshop/internal/metrics"
 	"unihub-workshop/internal/model"
 )
 
@@ -47,5 +50,71 @@ func TestStructuredLoggerRetainsIdentityAndQueueCorrelation(t *testing.T) {
 	}
 	if response.Header().Get("X-Request-ID") != "http-request-uuid" || fields["status"] != float64(http.StatusAccepted) {
 		t.Fatalf("request metadata mismatch: headers=%v fields=%v", response.Header(), fields)
+	}
+}
+
+func TestObservabilityRecordsCommittedHTTPStatus(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		status  int
+		handler http.HandlerFunc
+	}{
+		{"implicit OK", http.StatusOK, func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("ok"))
+			w.WriteHeader(http.StatusInternalServerError)
+		}},
+		{"first final header", http.StatusAccepted, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusAccepted)
+			w.WriteHeader(http.StatusInternalServerError)
+		}},
+		{"empty response", http.StatusOK, func(w http.ResponseWriter, r *http.Request) {}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			path := "/observability/" + strconv.Itoa(test.status) + "/" + test.name
+			counter := metrics.RequestsTotal.WithLabelValues(http.MethodGet, path, strconv.Itoa(test.status))
+			counterValue := func() float64 {
+				var metric dto.Metric
+				if err := counter.Write(&metric); err != nil {
+					t.Fatal(err)
+				}
+				return metric.GetCounter().GetValue()
+			}
+			before := counterValue()
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "http://example.test/status", nil)
+			request.URL.Path = path
+			StructuredLogger(MetricsMiddleware(test.handler)).ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("HTTP status: got %d, want %d", response.Code, test.status)
+			}
+			var fields map[string]interface{}
+			if err := json.Unmarshal(output.Bytes(), &fields); err != nil {
+				t.Fatal(err)
+			}
+			if fields["status"] != float64(test.status) {
+				t.Errorf("logged status %v differs from HTTP status %d", fields["status"], test.status)
+			}
+			if actual := counterValue() - before; actual != 1 {
+				t.Errorf("expected one request with committed HTTP status, got %v", actual)
+			}
+		})
+	}
+}
+
+func TestObservabilityPreservesResponseFlushing(t *testing.T) {
+	response := httptest.NewRecorder()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("stream"))
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			t.Errorf("wrapped response cannot flush: %v", err)
+		}
+	})
+	StructuredLogger(MetricsMiddleware(handler)).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/stream", nil))
+	if !response.Flushed {
+		t.Error("response was not flushed")
 	}
 }
