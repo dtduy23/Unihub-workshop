@@ -1,303 +1,328 @@
-<p align="center">
-  <img src="docs/images/hero_banner.png" alt="UniHub Workshop Banner" width="800"/>
-</p>
+# UniHub Workshop
 
-<h1 align="center">🎓 UniHub Workshop Platform</h1>
+A workshop registration and community platform for students, event staff, businesses, and administrators. UniHub combines a Go API, asynchronous workers, a Next.js web application, and an Expo app for QR check-in.
 
-<p align="center">
-  <strong>Enterprise-Grade, High-Concurrency Event Ticketing & Offline-First Verification Platform</strong>
-</p>
+The repository includes Kubernetes packaging, GitOps configuration, CI quality gates, and observability artifacts. Local validation results are distinguished from deployment work that still needs testing on a running cluster.
 
-<p align="center">
-  A distributed, cloud-native system engineered to handle extreme flash-crowd workshop registrations, offline cryptographic ticket validation, and automated GitOps infrastructure.
-</p>
+![UniHub Workshop](docs/images/hero_banner.png)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go"/>
-  <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL"/>
-  <img src="https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis"/>
-  <img src="https://img.shields.io/badge/RabbitMQ-3-FF6600?style=for-the-badge&logo=rabbitmq&logoColor=white" alt="RabbitMQ"/>
-  <img src="https://img.shields.io/badge/Kubernetes-1.30-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white" alt="Kubernetes"/>
-  <img src="https://img.shields.io/badge/Helm-3-0F1689?style=for-the-badge&logo=helm&logoColor=white" alt="Helm"/>
-  <img src="https://img.shields.io/badge/ArgoCD-GitOps-EF7B4D?style=for-the-badge&logo=argo&logoColor=white" alt="ArgoCD"/>
-  <img src="https://img.shields.io/badge/Terraform-IaC-844FBA?style=for-the-badge&logo=terraform&logoColor=white" alt="Terraform"/>
-  <img src="https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js"/>
-  <img src="https://img.shields.io/badge/React_Native-Expo-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo"/>
-</p>
+## Contents
 
----
+- [Features](#features)
+- [Architecture](#architecture)
+- [Technology](#technology)
+- [Local development](#local-development)
+- [Configuration](#configuration)
+- [Tests and validation](#tests-and-validation)
+- [Kubernetes demo](#kubernetes-demo)
+- [CI and GitOps](#ci-and-gitops)
+- [Repository layout](#repository-layout)
 
-## 📑 Table of Contents
-- [Executive Overview](#-executive-overview)
-- [System Architecture](#-system-architecture)
-- [Key Engineering & Concurrency Highlights](#-key-engineering--concurrency-highlights)
-- [Verified Concurrency Benchmarks](#-verified-concurrency-benchmarks)
-- [DevOps, GitOps & Cloud Infrastructure](#-devops-gitops--cloud-infrastructure)
-- [Repository Structure](#-repository-structure)
-- [Quick Start Guide (Local Development)](#-quick-start-guide-local-development)
-- [Seed Data & Demo Credentials](#-seed-data--demo-credentials)
-- [License & Contributions](#-license--contributions)
+## Features
 
----
+| Role | Main capabilities |
+| --- | --- |
+| Student | Browse workshops, register and view QR tickets, publish community posts, comment, bookmark posts, and follow companies. |
+| Business | Maintain a company profile, create workshop drafts, submit workshops and revisions for admin review, and publish announcements linked to approved workshops. |
+| Staff | Check in attendees through web or mobile, verify signed tickets offline, and synchronize scans when connectivity returns. |
+| Admin | Manage workshops, approve businesses and workshop submissions, moderate reported content, assign staff, and import student accounts. |
 
-## 🌟 Executive Overview
+### Community and business
 
-During university-wide career and technical workshop weeks, thousands of students compete simultaneously for limited seating capacities (50–500 seats) within the very first seconds of registration opening. Traditional monolithic systems fail under these flash-crowds due to database connection pool exhaustion, pessimistic lock contention, and cascading service outages.
+- Authenticated posts with up to four images, likes, comments with one reply level, bookmarks, company follows, and follower notifications.
+- A chronological feed with cursor pagination, topic/company filters, and following, saved, and author views.
+- Role-based access and ownership checks across company profiles, workshops, announcements, and media.
+- Company approval/suspension, workshop reviews and revisions, content reports, and moderation audit records.
+- HttpOnly JWT sessions through a same-origin web API proxy, expiring single-use password reset links, and session revocation after password changes.
 
-**UniHub Workshop** solves this with a **zero-overbooking, multi-tier asynchronous architecture**:
-1. **Students (Web App):** Real-time seat visibility, sub-millisecond virtual waiting room queueing, automated polling, and cryptographic QR ticket delivery.
-2. **Event Organizers (Admin Portal):** Event lifecycle management, automated AI academic summarization via Google Gemini, and streaming chunked batch imports for up to 12,000 student accounts.
-3. **Event Staff (Mobile App):** Real-time gate check-in with **offline-first cryptographic verification** (validating RSA-2048 digital signatures locally without internet access) and background conflict-resolution syncing.
+### Registration and check-in
 
----
+- PostgreSQL reserves a seat under a workshop row lock before enqueueing registration. Repeated pending requests reuse a correlation ID.
+- Registration and notification outboxes retry unpublished events after broker/publisher failures. Registration state is persisted in PostgreSQL and scoped to its requesting user.
+- Redis provides rate limiting, waiting-room coordination, caching, and approximate visitor counts through HyperLogLog.
+- QR tickets carry an RSA signature over the student, user, and workshop identifiers. Staff clients cache the public key for offline verification and synchronize scans in batches of up to 500.
+- CSV import processes accounts in batches; the sample-data generator supports up to 12,000 rows. An optional Gemini integration extracts workshop information from uploaded documents.
 
-## 🏗️ System Architecture
+## Architecture
 
-<p align="center">
-  <img src="docs/images/backend_architecture.png" alt="Backend Architecture" width="850"/>
-</p>
-
-### End-to-End Request Lifecycle
-```
-[2,000+ Concurrent Students]
-           │  HTTP POST /api/v1/registrations (Bearer JWT)
-           ▼
-   ┌────────────────────────────────┐
-   │ Nginx Gateway / API Replicas   │
-   └───────┬────────────────────────┘
-           │
-           ├──> [1. Virtual Waiting Room (Redis ZSET)] ── (If overloaded, holds traffic)
-           │
-           ├──> [2. Atomic Seat Limiter (Redis Lua Script)] ── (Fast-fail if 0 seats)
-           │
-           ├──> [3. RabbitMQ Registration Queue] ── (Producer acknowledges HTTP 202 in <1ms)
-           │
-           ▼
-   ┌────────────────────────────────┐
-   │ Background Worker Pool (32 W)  │  <── Pulls with rate-regulated Prefetch Count
-   └───────┬────────────────────────┘
-           │
-           ├──> [4. Compute RSA-2048 Digital Signature in-memory (outside DB transaction)]
-           │
-           ├──> [5. PostgreSQL Pessimistic Lock (SELECT ... FOR UPDATE)]
-           │         • Decrement available_seats (strictly > 0)
-           │         • Insert registration with pre-computed ticket_signature
-           │         • Transaction committed in < 2ms (Zero lock contention)
-           │
-           ├──> [6. Cache Status in Redis (TTL: 1 Hour)]
-           │
-           └──> [7. RabbitMQ Notification Queue] ──> SMTP Worker delivers confirmation email
+```mermaid
+flowchart LR
+    Web[Next.js web] -->|Session proxy| API[Go API]
+    Mobile[Expo check-in app] -->|JWT| API
+    API -->|Seat reservation and outbox| DB[(PostgreSQL)]
+    API -->|Admission and cache| Redis[(Redis)]
+    API -->|Registration events| MQ[RabbitMQ]
+    MQ --> Worker[Go workers]
+    Worker -->|Finalize tickets and status| DB
+    Worker --> SMTP[SMTP]
+    API -->|Metrics| Prometheus[Prometheus / Grafana]
+    Worker -->|Metrics| Prometheus
 ```
 
----
+The backend uses handler, service, and repository layers. `APP_MODE` selects API, worker, combined, or migration-only execution. Worker mode exposes health, readiness, and metrics without business API routes. Migrations use a PostgreSQL advisory lock to serialize concurrent startup.
 
-## 🚀 Key Engineering & Concurrency Highlights
+The API commits a reservation before returning a correlation ID. Workers finalize the registration and ticket; clients poll until completion. PostgreSQL is authoritative for available seats and registration state.
 
-### 1. Durable reservations and workshop review
-PostgreSQL reserves seats under a workshop row lock before a request is enqueued. Duplicate active requests reuse one correlation ID. Tickets, capacity updates and cancellations preserve the held seat count. Registration and notification outboxes recover unpublished events after a publish failure; Redis serves the waiting room and cache.
+## Technology
 
-### 2. Authenticated community and business accounts
-The application has exactly four roles: `STUDENT`, `STAFF`, `BUSINESS`, `ADMIN`. All product pages and business APIs require login. Approved businesses create workshops, submit them for admin review and publish announcements linked to their own approved workshops. The web community supports images, likes, one-level comment replies, bookmarks, company follows and moderation with an audit trail. Registration status belongs to its requesting user and is persisted in PostgreSQL.
+| Area | Implementation |
+| --- | --- |
+| Backend | Go 1.25.5, Chi, pgx, JWT, RSA signatures |
+| Web | Next.js 16.2.4, React 19, TypeScript |
+| Mobile | Expo SDK 54, React Native, SQLite for pending scans |
+| Data and messaging | PostgreSQL 16, Redis 7, RabbitMQ |
+| Containers and deployment | Docker Compose, Nginx, Kubernetes, Helm |
+| Delivery | GitHub Actions, Argo Workflows, ArgoCD |
+| Scaling and telemetry | HPA, KEDA, Prometheus, Grafana, Fluent Bit, OpenSearch |
+| Testing | Go race/integration tests, Python regression tests, k6, Helm validation |
 
-Web sessions use an HttpOnly JWT cookie through a same-origin API proxy. Password reset uses an expiring, single-use link; password changes invalidate earlier sessions. See [the Vietnamese feature guide](docs/HUONG_DAN_MANG_XA_HOI_DOANH_NGHIEP.md) for setup, permissions and validation limits.
+## Local development
 
-### 3. Concurrency-Safe Circuit Breaker
-* Custom-built Circuit Breaker protecting third-party dependencies (AI APIs, Mail servers) featuring:
-  * **Thread-safe state transitions** across `CLOSED`, `OPEN`, and `HALF_OPEN`.
-  * **Atomic probe limiting** in `HALF_OPEN` state to prevent thundering-herd probes.
-  * **Panic recovery middleware** ensuring faulty workers never crash the main daemon.
+Install Docker with the Compose v2 plugin, Go 1.25.5 or newer, Node.js 22, npm, Make, and OpenSSL. Commands start from the repository root unless a working directory is shown.
 
-### 4. Offline-First Cryptographic Check-in
-* Tickets contain an RSA-2048 signature over `student_id|user_uuid|workshop_id`.
-* Mobile devices cache the server's public key upon authentication. During event check-in in basements or crowded auditoriums with **zero network connectivity**, the staff application verifies tickets locally using PKCS#1 v1.5 verification.
-* When connectivity resumes, up to 500 offline check-in logs are synchronized in batches with deterministic timestamp conflict resolution.
-
-### 5. High-Throughput Batch Account Ingestion
-* Handles bulk onboarding of 12,000 university students via streaming CSV parsing.
-* Batched into chunks of 500 records using PostgreSQL `INSERT ... ON CONFLICT (user_id) DO UPDATE` (upsert), completing full university imports in seconds without memory spikes.
-
----
-
-## 📊 Verified Concurrency Benchmarks
-
-Stress tests were conducted using the built-in Go benchmarking engine (`cmd/concurrency_demo`) simulating a true simultaneous gate barrier (all goroutines aligned at 0ms starting gun):
-
-<p align="center">
-  <img src="docs/images/gcp_infrastructure.png" alt="Infrastructure Benchmark Setup" width="850"/>
-</p>
-
-| Benchmark Scenario | Traffic Profile | CPU Allocation | Throughput (RPS) | Avg Latency | P95 Latency | Seats Allocated | Overbooking |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Simultaneous Gate Burst (16 Cores)** | 3,000 users @ 0ms | 16 vCPUs | **2,235.1 req/s** | 1.34 ms | 2.12 ms | 100 / 100 | **0 (0.00%)** |
-| **Simultaneous Gate Burst (Strict 2 Cores)** | 2,000 users @ 0ms | 2 vCPUs (`taskset -c 0,1`) | **1,754.4 req/s** | 0.96 ms | 1.84 ms | 100 / 100 | **0 (0.00%)** |
-| **Sustained Traffic Pool** | 2,000 users over 3s | 2 vCPUs | **658.2 req/s** | 0.96 ms | 1.45 ms | 50 / 50 | **0 (0.00%)** |
-
-> Historical benchmark results predate the durable PostgreSQL reservation and community changes. Re-run load tests before using these numbers for the current version.
-
-> **Audit Result:** Across all cycles, connection errors were **0**, dropped sockets were **0**, and database consistency was verified at **100.00%** with zero seat anomalies.
-
----
-
-## ☁️ DevOps, GitOps & Cloud Infrastructure
-
-The platform is designed around CNCF Cloud-Native and Twelve-Factor App standards:
-
-```text
-Git Commit ──> Argo Workflows DAG (Lint, Race Tests, Docker Multi-stage Build, k6 Gate)
-                     │
-                     ▼
-               Update Helm Values (deploy/helm/unihub)
-                     │
-                     ▼
-               ArgoCD Controller (Declarative Sync Waves, Self-Healing)
-                     │
-                     ▼
-               Kubernetes Cluster (GKE / KinD)
-               ├── Wave 1: PostgreSQL, Redis, RabbitMQ
-               ├── Wave 2: DB Schema Migrations Job
-               ├── Wave 3: UniHub API & Worker Deployments (HPA Autoscaling)
-               └── Wave 4: Ingress Routes & Prometheus PodMonitors
-```
-
-* **Infrastructure as Code (IaC):** Complete GCP foundation managed via **Terraform** (`deploy/terraform/`), provisioning VPC, GKE Autopilot clusters, Cloud SQL, Memorystore, Cloud NAT, and Cloud Armor WAF.
-* **Declarative Packaging:** Packaged with **Helm 3** (`deploy/helm/unihub`) with environment-isolated configurations (`values-staging.yaml`, `values-prod.yaml`).
-* **Continuous Delivery:** Orchestrated with **ArgoCD GitOps** (`deploy/argocd/`) utilizing Kubernetes **Sync Waves** to guarantee clean dependency ordering between databases, migrations, and microservices.
-* **Automated CI & Quality Gates:** Cloud-native DAG workflows using **Argo Workflows** (`deploy/argo-workflows/`) and **GitHub Actions**, enforcing automated regression gates where pipelines terminate if p95 latency exceeds 200ms.
-* **Telemetry & Observability:** Prometheus Operator CRDs (`PodMonitor`), Grafana dashboards, and structured JSON logs indexed via **Fluent-bit** into **OpenSearch**.
-
-Run `make devops-check` to validate the artifacts. `make devops-demo` creates an isolated minikube stack with local GitOps, observability and a k6 gate; `make devops-demo-kind` uses kind. CI images use immutable commit tags, staging promotion follows all gates, and production sync remains manual. See [the DevOps playbook](docs/DEVOPS_PLAYBOOK.md) and [recorded validation](docs/DEVOPS_VALIDATION.md) for prerequisites and tested limits.
-
----
-
-## 📁 Repository Structure
-
-The monorepo follows a clean domain-driven layout:
-
-```text
-Unihub-workshop/
-├── Makefile                     # ⚡ 1-Click developer entrypoint (make dev, make bench, etc.)
-├── docker-compose.yml           # Root Docker Compose (delegates to deploy/docker)
-│
-├── deploy/                      # 🚀 DevOps, Infrastructure & GitOps Center
-│   ├── docker/                  # 16-replica local container stack (Docker Compose + Nginx)
-│   ├── helm/                    # Helm 3 Charts (unihub: API, Worker, HPA, PodMonitor)
-│   ├── gitops/                  # ArgoCD Application manifests, App-of-Apps & Sync Waves
-│   ├── ci/                      # Cloud-Native CI (Argo Workflows DAGs & Legacy Jenkinsfile)
-│   ├── k8s/                     # Raw Kubernetes manifests (Namespace, Ingress, HPA)
-│   ├── terraform/               # GCP Infrastructure as Code (GKE, VPC, CloudSQL, MemoryStore)
-│   └── observability/           # Centralized Telemetry (Fluent-bit, OpenSearch, Prometheus)
-│
-├── scripts/                     # 🛠️ Categorized Automation Scripts
-│   ├── dev/                     # Local startup scripts (start_backend.sh, start_backend_2cpu.sh)
-│   ├── benchmark/               # Concurrency gate runners (run_concurrency_test.sh)
-│   └── k8s/                     # Cluster bootstrapping (deploy_minikube.sh)
-│
-├── src/                         # 💻 Application Source Code
-│   ├── backend/                 # Golang High-Concurrency Backend (Clean Architecture)
-│   │   ├── cmd/server/          # API & Worker runtime entrypoint
-│   │   ├── cmd/concurrency_demo/# Real-time gate load testing & benchmark tool
-│   │   ├── internal/            # Service, Repository, Queue, SeatLimiter, WaitingRoom
-│   │   └── Dockerfile           # Optimized multi-stage container build
-│   ├── web/                     # Next.js 16 Web Frontend (Student, Staff, Business & Admin)
-│   └── mobile/                  # React Native Expo Check-in App (Offline-first)
-│
-├── docs/                        # 📚 Architectural Blueprints & Implementation Plans
-│   ├── images/                  # Architecture schematics & benchmark charts
-│   └── DEVOPS_IMPLEMENTATION_PLAN.md
-└── blueprint/                   # Design specifications & course documentation
-```
-
----
-
-## ⚙️ Quick Start Guide (Local Development)
-
-### Prerequisites
-* **Docker & Docker Compose** (Docker Engine v24+)
-* **Go** (v1.25.5+)
-* **Node.js** (v20.9+) & `npm`
-* **GNU Make**
-
-### 1. 1-Click Execution via Makefile (Recommended)
+### 1. Start infrastructure
 
 ```bash
-# Display all available automated targets
-make help
-
-# 1. Start the entire 16-container local stack (Postgres, Redis, RabbitMQ, API, Workers, Web)
-make dev
-
-# 2. Run Go Unit Tests with ThreadSanitizer data race detection
-make test
-
-# 3. Fire an instant concurrency stress test (50 users, 25 slots)
-make bench
-
-# 4. Fire full simultaneous 0ms gate burst stress test (2,000 users)
-make bench-2k
-
-# 5. Stop and clean up all containers
-make dev-down
+docker compose -f src/backend/docker-compose.yml up -d
+docker compose -f src/backend/docker-compose.yml ps
 ```
 
----
+This starts PostgreSQL on `5433`, Redis on `6379`, RabbitMQ on `5672`, and MailHog on `1025`. Wait for PostgreSQL, Redis, and RabbitMQ to become healthy before starting the backend.
 
-### 2. Manual Service Execution (Step-by-Step)
+### 2. Start the backend
 
-#### Step 1: Start Infrastructure Containers
+Generate a persistent local signing key once so issued tickets remain verifiable after a restart:
+
 ```bash
-docker compose up -d
+mkdir -p .devops/local
+umask 077
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .devops/local/tickets.pem
 ```
-* **PostgreSQL:** `localhost:5433` (Auto-migrated with schema & seed data)
-* **Redis:** `localhost:6379`
-* **RabbitMQ:** `localhost:5672` (Management Dashboard: `http://localhost:15672` | `guest/guest`)
-* **MailHog:** `localhost:1025` (Web UI: `http://localhost:8025`)
-* **Nginx Gateway:** `http://localhost:8080`, `http://localhost:3000`
 
-#### Step 2: Run Go Backend Server
+Keep the following environment in the backend terminal:
+
 ```bash
-# Pin backend execution strictly to 2 CPU Cores to simulate constrained environments
-./scripts/dev/start_backend_2cpu.sh
+export APP_MODE=all
+export DB_HOST=localhost DB_PORT=5433
+export DB_USER=unihub DB_PASSWORD=unihub_secret DB_NAME=unihub_workshop
+export DB_SSLMODE=disable
+export REDIS_ADDR=localhost:6379
+export RABBITMQ_URL=amqp://guest:guest@localhost:5672/
+export SMTP_HOST=localhost SMTP_PORT=1025 SMTP_USER= SMTP_PASS=
+export AUTH_SECRET="$(openssl rand -hex 32)"
+export RSA_PRIVATE_KEY="$(cat .devops/local/tickets.pem)"
+export SERVER_PORT=8080 WEB_URL=http://localhost:3000
+export CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+export RUN_SEED=true
 
-# Or run with all available CPU cores:
-./scripts/dev/start_backend.sh
+cd src/backend
+go run ./cmd/server
 ```
-Health Check Endpoint: `http://localhost:8080/health`
 
-#### Step 3: Run Web Frontend
+The server loads `.env` from its working directory, with exported variables taking precedence. See [the backend environment template](src/backend/.env.example) for optional settings. Keep `AUTH_SECRET` stable across restarts to retain sessions; API/worker instances in one environment must share the auth secret and signing key. `RUN_SEED=true` is for a local demo database.
+
+### 3. Start the web application
+
+In another terminal:
+
 ```bash
+cp src/web/.env.example src/web/.env.local
 cd src/web
 npm ci
 npm run dev
 ```
-Web Application: `http://localhost:3000`
 
-#### Step 4: Run Mobile Staff Check-in App
+The web app uses `API_INTERNAL_URL=http://localhost:8080` to forward authenticated requests to the backend.
+
+| Service | Local address |
+| --- | --- |
+| Web | http://localhost:3000 |
+| API health / readiness | http://localhost:8080/health / http://localhost:8080/ready |
+| API metrics | http://localhost:8080/metrics |
+| RabbitMQ management | http://localhost:15672 |
+| MailHog inbox | http://localhost:8025 |
+
+Seed accounts use password `123456`: admin `admin`, staff `staff01`, and student `21127001`. An admin creates business accounts at `/admin/companies` and approves them before publication. These accounts and infrastructure credentials are for local development.
+
+### 4. Start the mobile application
+
 ```bash
+cp src/mobile/.env.example src/mobile/.env
 cd src/mobile
 npm ci
-npx expo start --clear
+npm start
 ```
-Scan the terminal QR code using **Expo Go** on iOS or Android.
 
----
+Set `EXPO_PUBLIC_API_URL` to `http://10.0.2.2:8080` for an Android emulator, or the backend computer's LAN address for a physical device. Staff must authenticate and fetch the signing public key while online before offline verification.
 
-## 🔑 Seed Data & Demo Credentials
+### Other local profiles
 
-### Pre-configured Accounts
-| Role | Identifier / Email | Password | Access Capabilities |
-| :--- | :--- | :--- | :--- |
-| **System Admin** | `admin` (or `admin@unihub.edu.vn`) | `admin123` | Full control: Event CRUD, AI summarization, CSV student batch ingestion, Metrics |
-| **Student** | `student1@unihub.edu.vn` | `123456` | Browse workshops, join virtual waiting room, reserve seats, view QR ticket |
-| **Business** | Created by Admin at `/admin/companies` | Set by Admin (8+ characters) | Profile, own workshops and community posts after approval |
-| **Staff Member**| `staff1@unihub.edu.vn` | `123456` | Offline/Online QR ticket scanner via mobile application |
+`make dev` starts the root Compose profile: eight API replicas, two workers, two web replicas, and an Nginx gateway, alongside infrastructure. It requires a Compose version supporting `include`. Supply a shared `AUTH_SECRET` and `RSA_PRIVATE_KEY` through an ignored `docker-compose.override.yml`, and size `DB_MAX_CONNS`/`DB_MIN_CONNS` against the database connection budget before load testing.
 
-### Ready-to-use Sample Datasets
-* **12,000 Student Ingestion:** Test bulk processing via Admin Portal by uploading [`src/backend/data/sample_students_v2.csv`](file:///home/tuna/learn/se/Unihub-workshop/src/backend/data/sample_students_v2.csv).
-* **AI Workshop Extraction:** Upload sample conference PDFs to test Google Gemini automatic topic and syllabus summarization.
+```bash
+make help
+make dev
+make dev-ps
+make dev-logs
+make dev-down
+```
 
----
+Run this profile and component-based development separately because their published ports overlap.
 
-## 👥 Authors & Acknowledgments
+Generate a CSV for the admin import screen:
 
-* **Đinh Tuấn Duy** ([@dtduy23](https://github.com/dtduy23)) — Core System Architecture, Concurrency Engineering, Backend & DevOps Pipelines.
-* Developed as an advanced high-concurrency capstone engineering platform.
+```bash
+python3 scripts/generate_12k_students.py --count 12000 --output /tmp/unihub-students.csv
+```
+
+## Configuration
+
+Templates are tracked; local environment files, keys, generated data, and test reports are ignored.
+
+| Variable | Purpose |
+| --- | --- |
+| `APP_MODE` | `api`, `worker`, `all`, or `migrate`. |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE` | PostgreSQL connection. |
+| `DB_MAX_CONNS`, `DB_MIN_CONNS` | Per-process connection pool limits. |
+| `REDIS_ADDR`, `REDIS_PASSWORD` | Redis connection. |
+| `RABBITMQ_URL` | Message broker connection. |
+| `AUTH_SECRET`, `RSA_PRIVATE_KEY` | JWT sessions and RSA ticket signing. |
+| `AUTO_MIGRATE`, `RUN_SEED` | Migration and demo seed controls. Kubernetes runs migrations in a separate Job. |
+| `WEB_URL`, `CORS_ORIGINS`, `MEDIA_DIR` | Reset links, browser origins, and uploaded media. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASS` | Notification and password reset email. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Optional document extraction service. |
+| `API_INTERNAL_URL` | Web server's backend URL. |
+| `EXPO_PUBLIC_API_URL` | Mobile backend URL. |
+
+## Tests and validation
+
+### Application checks
+
+```bash
+make test
+python3 -m unittest discover -s scripts/tests -v
+```
+
+Go integration tests require `TEST_DATABASE_URL` to name a dedicated database ending in `_test`. Tests modify that database. Without the variable, database integration tests are skipped.
+
+With local PostgreSQL running, create the test database once and run the full suite:
+
+```bash
+docker compose -f src/backend/docker-compose.yml exec -T postgres createdb -U unihub unihub_test
+TEST_DATABASE_URL='postgres://unihub:unihub_secret@localhost:5433/unihub_test?sslmode=disable' make test
+```
+
+Integration coverage includes concurrent migrations, community/business permissions, registration and seat consistency, check-in, workshop revisions, and session revocation.
+
+After `npm ci`, run these checks in the indicated directories:
+
+```bash
+# src/web
+npm run typecheck
+npm run lint
+npm run build
+
+# src/mobile
+npm run typecheck
+```
+
+### DevOps checks and performance gate
+
+`make devops-check` requires Bash, Helm, kubectl, Python, and PyYAML. It lints/renders Helm profiles, validates resource relationships and CI dependencies, checks shell syntax, and runs Python tests. ShellCheck, Argo CLI, and kubeconform add checks when installed. Offline validation does not exercise controllers on a cluster.
+
+```bash
+make devops-check
+```
+
+The [k6 scenario](src/backend/tests/k6_load_test.js) browses with 20 virtual users, then submits 50 registrations. It requires p95 tagged API latency below 200 ms, HTTP errors below 0.5%, every check to pass, and every registration to reach `SUCCESS`.
+
+Recorded local validation on **9 October 2026** used PostgreSQL 16, Redis 7, and RabbitMQ 3.13:
+
+| Check | Recorded result |
+| --- | --- |
+| Go integration/race suite | 39 tests/subtests passed; optional preview-server test skipped. |
+| k6 workload | 20 VUs, 50 completed registrations, 8,846 HTTP requests/checks. |
+| Tagged API p95 latency | 3.71 ms. |
+| HTTP errors / failed checks | 0% / 0. |
+| Database result | 50 `SUCCESS` registrations on a 50-seat workshop; zero seats remaining. |
+| Failure cases | Invalid JWT failed the gate; broker loss made worker health return 503. |
+
+These results describe that local workload. Earlier 2,000-user benchmarks predate the current reservation and community changes; current capacity still needs a new load test. Full ArgoCD/Workflows bootstrap, image publication/promotion, autoscaling, log ingestion, and production deployment have not been validated end-to-end on a live cluster.
+
+## Kubernetes demo
+
+The bootstrap requires Docker, kubectl, Helm, Git, OpenSSL, Python with PyYAML, and either kind or minikube. It requires a clean committed checkout, builds images for the current commit, and configures ArgoCD against a Git snapshot served inside the demo cluster.
+
+```bash
+make devops-demo-kind
+# Alternatively, minikube requests 4 CPUs and 8 GiB RAM.
+make devops-demo
+```
+
+Choose one driver. The script installs ArgoCD, Argo Workflows, monitoring, KEDA, and logging, deploys the app, and runs the authenticated k6 gate. Generated credentials and kubeconfig stay local.
+
+After bootstrap succeeds, use the demo kubeconfig and run each port-forward in a separate terminal:
+
+```bash
+export KUBECONFIG="$PWD/.devops/kubeconfig"
+kubectl -n unihub-demo port-forward svc/unihub-web-service 3000:80
+kubectl -n unihub-demo port-forward svc/unihub-api-service 8080:80
+kubectl -n argocd port-forward svc/argocd-server 8443:443
+kubectl -n argo port-forward svc/argo-workflows-server 2746:2746
+kubectl -n monitoring port-forward svc/monitoring-grafana 3001:80
+kubectl -n logging port-forward svc/opensearch-dashboards 5601:5601
+```
+
+The app runs at http://localhost:3000, ArgoCD at https://localhost:8443, Workflows at https://localhost:2746, Grafana at http://localhost:3001, and OpenSearch Dashboards at http://localhost:5601. Retrieve controller/dashboard credentials from Kubernetes Secrets. The local OpenSearch demo disables security and is intended for access through local port-forwarding.
+
+## CI and GitOps
+
+```text
+Commit SHA -> parallel Go/Python/web/manifest checks -> backend/web image builds
+           -> isolated candidate release -> authenticated k6 gate
+           -> optional staging image promotion in Git -> ArgoCD sync
+```
+
+- [GitHub Actions](.github/workflows/devops-ci.yaml) runs PR checks with PostgreSQL. Trusted main-branch runs submit Argo CI through a self-hosted runner labeled `unihub-ci`; configure `CONTAINER_REGISTRY` before enabling submission.
+- [Argo Workflows](deploy/argo-workflows/ci-pipeline.yaml) builds images tagged with the full SHA, deploys a candidate to `unihub-ci`, checks async completion with k6, and cleans up on exit. Promotion rejects a source SHA that is no longer the head of `main`.
+- [ArgoCD](deploy/argocd/) auto-syncs and self-heals staging. Production sync is manual. Helm image overlays separate staging, production, and demo releases.
+- [Helm](deploy/helm/unihub/) packages API, worker, web, migrations, Services, ingress, storage, and optional datastores. Sync waves order configuration, infrastructure, migrations, applications, and routing/scaling.
+- API scaling uses CPU/memory HPA or optional KEDA/Prometheus. Worker KEDA reads RabbitMQ backlog. The chart avoids two API autoscalers targeting the same Deployment.
+- Prometheus PodMonitors, Grafana dashboards, and alerts cover latency, errors, visitors, queues, and worker availability. Fluent Bit/OpenSearch manifests collect structured logs; correlation IDs connect registration enqueue and worker processing.
+
+Submit a workflow after configuring the cluster:
+
+```bash
+IMAGE_REGISTRY=registry.example.com/team/unihub make devops-ci
+```
+
+Replace the example registry. The cluster needs the Workflows controller, `unihub-ci` namespace/RBAC and WorkflowTemplate, registry credentials, and Git credentials if promotion is enabled.
+
+Before staging/production sync, create the application Secret outside Git and configure images, ingress/TLS, web URL, SMTP, and storage. API replicas share media/import data: those profiles require RWX storage, and production expects an existing `unihub-media` claim. In-cluster datastores use single-node templates with persistence; backup/restore and high availability require environment-specific work. Legacy Jenkins and raw Kubernetes artifacts are retained alongside the primary Helm/Argo path.
+
+## Repository layout
+
+```text
+.github/workflows/          GitHub CI entry point
+deploy/
+  argo-workflows/           CI DAG, controller values and RBAC
+  argocd/                  Projects, applications and infrastructure bootstrap
+  helm/unihub/             Chart, environment values and image overlays
+  docker/                  Compose load-testing profile and Nginx
+  logging/                 Fluent Bit, OpenSearch and retention manifests
+  observability/metrics/   Grafana dashboard and Prometheus alerts
+scripts/
+  devops/                  Validation, demo, candidate, load-test and promotion tools
+  dev/                     Backend startup helpers
+  benchmark/               Concurrency benchmark runner
+  tests/                   Python tooling regression tests
+src/
+  backend/                 Go API/workers, migrations and integration tests
+  web/                     Next.js application and authenticated API proxy
+  mobile/                  Expo staff check-in application
+docs/images/               Project illustrations
+```
+
+`README.md` is the tracked documentation entry point. Local guides, plans, specifications, and nested README files are ignored.
+
+Author: [Đinh Tuấn Duy](https://github.com/dtduy23).
